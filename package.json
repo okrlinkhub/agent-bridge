@@ -1,7 +1,10 @@
 {
   "name": "@okrlinkhub/agent-bridge",
   "description": "A agent bridge component for Convex.",
-  "repository": "github:okrlinkhub/agent-bridge",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/okrlinkhub/agent-bridge.git"
+  },
   "homepage": "https://github.com/okrlinkhub/agent-bridge#readme",
   "bugs": {
     "url": "https://github.com/okrlinkhub/agent-bridge/issues"
