@@ -54,6 +54,7 @@ const authorizeResultValidator = v.union(
         v.literal("rate_limited"),
       ),
     ),
+    retryAfterSeconds: v.optional(v.number()),
   }),
 );
 
@@ -75,6 +76,7 @@ export const authorizeRequest = mutation({
     instanceToken: v.string(),
     functionName: v.string(),
     appName: v.string(),
+    estimatedCost: v.optional(v.number()),
   },
   returns: authorizeResultValidator,
   handler: async (ctx, args) => {
@@ -156,8 +158,102 @@ export const authorizeRequest = mutation({
       };
     }
 
-    // TODO: For rate_limited permissions, check rate counters here
-    // (circuit breaker - deferred to post-MVP)
+    // 3b. Circuit breaker check for rate_limited permissions
+    if (matches[0].permission === "rate_limited") {
+      const limits = matches[0].rateLimitConfig ?? {
+        requestsPerHour: 100,
+        tokenBudget: 50000,
+      };
+      const estimatedCost = args.estimatedCost ?? 100;
+      const windowHour = new Date().toISOString().slice(0, 13);
+
+      // Find or create counter for this hour window (inline to stay in same transaction)
+      let counter = await ctx.db
+        .query("circuitCounters")
+        .withIndex("by_agentId_and_appName_and_windowHour", (q) =>
+          q
+            .eq("agentId", agentId)
+            .eq("appName", args.appName)
+            .eq("windowHour", windowHour),
+        )
+        .unique();
+
+      if (!counter) {
+        const id = await ctx.db.insert("circuitCounters", {
+          agentId,
+          appName: args.appName,
+          windowHour,
+          requestCount: 0,
+          tokenEstimate: 0,
+          isBlocked: false,
+        });
+        counter = (await ctx.db.get(id))!;
+      }
+
+      if (counter.isBlocked) {
+        // Calculate retry-after (seconds until next hour window)
+        const now = new Date();
+        const nextHour = new Date(now);
+        nextHour.setMinutes(0, 0, 0);
+        nextHour.setHours(nextHour.getHours() + 1);
+        const retryAfterSeconds = Math.ceil(
+          (nextHour.getTime() - now.getTime()) / 1000,
+        );
+
+        return {
+          authorized: false as const,
+          error: `Rate limit exceeded: ${counter.blockedReason ?? "Circuit breaker is open"}`,
+          statusCode: 429,
+          agentId,
+          matchedPattern: matches[0].functionPattern,
+          matchedPermission: "rate_limited" as const,
+          retryAfterSeconds,
+        };
+      }
+
+      const newRequestCount = counter.requestCount + 1;
+      const newTokenEstimate = counter.tokenEstimate + estimatedCost;
+      const requestsExceeded = newRequestCount > limits.requestsPerHour;
+      const tokensExceeded = newTokenEstimate > limits.tokenBudget;
+
+      if (requestsExceeded || tokensExceeded) {
+        const reason = requestsExceeded
+          ? `Requests per hour exceeded (${newRequestCount}/${limits.requestsPerHour})`
+          : `Token budget exceeded (${newTokenEstimate}/${limits.tokenBudget})`;
+
+        await ctx.db.patch(counter._id, {
+          requestCount: newRequestCount,
+          tokenEstimate: newTokenEstimate,
+          isBlocked: true,
+          blockedReason: reason,
+          blockedAt: Date.now(),
+        });
+
+        const now = new Date();
+        const nextHour = new Date(now);
+        nextHour.setMinutes(0, 0, 0);
+        nextHour.setHours(nextHour.getHours() + 1);
+        const retryAfterSeconds = Math.ceil(
+          (nextHour.getTime() - now.getTime()) / 1000,
+        );
+
+        return {
+          authorized: false as const,
+          error: `Rate limit exceeded: ${reason}`,
+          statusCode: 429,
+          agentId,
+          matchedPattern: matches[0].functionPattern,
+          matchedPermission: "rate_limited" as const,
+          retryAfterSeconds,
+        };
+      }
+
+      // Increment counters (within limits)
+      await ctx.db.patch(counter._id, {
+        requestCount: newRequestCount,
+        tokenEstimate: newTokenEstimate,
+      });
+    }
 
     // 4. Look up function handle
     const fnEntry = await ctx.db

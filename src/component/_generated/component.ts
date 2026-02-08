@@ -23,11 +23,151 @@ import type { FunctionReference } from "convex/server";
  */
 export type ComponentApi<Name extends string | undefined = string | undefined> =
   {
+    channels: {
+      createChannel: FunctionReference<
+        "mutation",
+        "internal",
+        { appName: string; channelName: string; description?: string },
+        string,
+        Name
+      >;
+      deactivateChannel: FunctionReference<
+        "mutation",
+        "internal",
+        { appName: string; channelName: string },
+        boolean,
+        Name
+      >;
+      getUnreadCount: FunctionReference<
+        "query",
+        "internal",
+        { appName: string; channelName: string; instanceToken: string },
+        number,
+        Name
+      >;
+      listChannels: FunctionReference<
+        "query",
+        "internal",
+        { appName: string },
+        Array<{
+          channelName: string;
+          createdAt: number;
+          description?: string;
+          isActive: boolean;
+        }>,
+        Name
+      >;
+      markAsRead: FunctionReference<
+        "mutation",
+        "internal",
+        { appName: string; instanceToken: string; messageId: string },
+        boolean,
+        Name
+      >;
+      postMessage: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          appName: string;
+          channelName: string;
+          instanceToken: string;
+          payload: string;
+          priority?: number;
+          ttlMinutes?: number;
+        },
+        { messageId: string; success: boolean },
+        Name
+      >;
+      readMessages: FunctionReference<
+        "query",
+        "internal",
+        {
+          after?: number;
+          appName: string;
+          channelName: string;
+          instanceToken: string;
+          limit?: number;
+        },
+        Array<{
+          expiresAt: number;
+          fromAgentId: string;
+          messageId: string;
+          metadata: { priority: number; ttl: number };
+          payload: string;
+          readBy: Array<string>;
+          sentAt: number;
+        }>,
+        Name
+      >;
+    };
+    circuitBreaker: {
+      checkAndIncrement: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          agentId: string;
+          appName: string;
+          estimatedCost: number;
+          limits: { requestsPerHour: number; tokenBudget: number };
+        },
+        {
+          allowed: boolean;
+          currentCount: number;
+          currentTokens: number;
+          reason?: string;
+        },
+        Name
+      >;
+      getStatus: FunctionReference<
+        "query",
+        "internal",
+        { agentId: string; appName: string },
+        {
+          agentId: string;
+          appName: string;
+          blockedAt?: number;
+          blockedReason?: string;
+          isBlocked: boolean;
+          requestCount: number;
+          tokenEstimate: number;
+          windowHour: string;
+        } | null,
+        Name
+      >;
+      listBlocked: FunctionReference<
+        "query",
+        "internal",
+        {},
+        Array<{
+          agentId: string;
+          appName: string;
+          blockedAt?: number;
+          blockedReason?: string;
+          isBlocked: boolean;
+          requestCount: number;
+          tokenEstimate: number;
+          windowHour: string;
+        }>,
+        Name
+      >;
+      resetCounter: FunctionReference<
+        "mutation",
+        "internal",
+        { agentId: string; appName: string },
+        boolean,
+        Name
+      >;
+    };
     gateway: {
       authorizeRequest: FunctionReference<
         "mutation",
         "internal",
-        { appName: string; functionName: string; instanceToken: string },
+        {
+          appName: string;
+          estimatedCost?: number;
+          functionName: string;
+          instanceToken: string;
+        },
         | {
             agentId: string;
             appName: string;
@@ -41,6 +181,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             error: string;
             matchedPattern?: string;
             matchedPermission?: "allow" | "deny" | "rate_limited";
+            retryAfterSeconds?: number;
             statusCode: number;
           },
         Name

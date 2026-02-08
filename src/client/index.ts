@@ -252,6 +252,140 @@ export class AgentBridge {
       limit: opts?.limit,
     });
   }
+
+  // --- Circuit Breaker ---
+
+  /**
+   * Get the current circuit breaker status for an agent on this app.
+   * Returns the counter for the current hour window, or null if none exists.
+   */
+  async getCircuitBreakerStatus(ctx: QueryCtx, agentId: string) {
+    return await ctx.runQuery(this.component.circuitBreaker.getStatus, {
+      agentId,
+      appName: this.appName,
+    });
+  }
+
+  /**
+   * Admin: manually reset a blocked circuit breaker for an agent.
+   */
+  async resetCircuitBreaker(
+    ctx: MutationCtx,
+    agentId: string,
+  ): Promise<boolean> {
+    return await ctx.runMutation(this.component.circuitBreaker.resetCounter, {
+      agentId,
+      appName: this.appName,
+    });
+  }
+
+  /**
+   * Admin: list all currently blocked circuit breakers across all agents.
+   */
+  async listBlockedAgents(ctx: QueryCtx) {
+    return await ctx.runQuery(this.component.circuitBreaker.listBlocked, {});
+  }
+
+  // --- A2A Channels ---
+
+  /**
+   * Admin: create a channel for this app.
+   * Idempotent -- returns existing channel ID if it already exists.
+   */
+  async createChannel(
+    ctx: MutationCtx,
+    channelName: string,
+    description?: string,
+  ): Promise<string> {
+    return await ctx.runMutation(this.component.channels.createChannel, {
+      appName: this.appName,
+      channelName,
+      description,
+    });
+  }
+
+  /**
+   * List active channels for this app.
+   */
+  async listChannels(ctx: QueryCtx) {
+    return await ctx.runQuery(this.component.channels.listChannels, {
+      appName: this.appName,
+    });
+  }
+
+  /**
+   * Admin: deactivate a channel (soft delete).
+   */
+  async deactivateChannel(
+    ctx: MutationCtx,
+    channelName: string,
+  ): Promise<boolean> {
+    return await ctx.runMutation(this.component.channels.deactivateChannel, {
+      appName: this.appName,
+      channelName,
+    });
+  }
+
+  /**
+   * Post a message to a channel on behalf of an authenticated agent.
+   */
+  async postMessage(
+    ctx: MutationCtx,
+    opts: {
+      instanceToken: string;
+      channelName: string;
+      payload: string;
+      priority?: number;
+      ttlMinutes?: number;
+    },
+  ) {
+    return await ctx.runMutation(this.component.channels.postMessage, {
+      instanceToken: opts.instanceToken,
+      appName: this.appName,
+      channelName: opts.channelName,
+      payload: opts.payload,
+      priority: opts.priority,
+      ttlMinutes: opts.ttlMinutes,
+    });
+  }
+
+  /**
+   * Read messages from a channel on behalf of an authenticated agent.
+   */
+  async readMessages(
+    ctx: QueryCtx,
+    opts: {
+      instanceToken: string;
+      channelName: string;
+      limit?: number;
+      after?: number;
+    },
+  ) {
+    return await ctx.runQuery(this.component.channels.readMessages, {
+      instanceToken: opts.instanceToken,
+      appName: this.appName,
+      channelName: opts.channelName,
+      limit: opts.limit,
+      after: opts.after,
+    });
+  }
+
+  /**
+   * Get unread message count for an agent on a channel.
+   */
+  async getUnreadCount(
+    ctx: QueryCtx,
+    opts: {
+      instanceToken: string;
+      channelName: string;
+    },
+  ) {
+    return await ctx.runQuery(this.component.channels.getUnreadCount, {
+      instanceToken: opts.instanceToken,
+      appName: this.appName,
+      channelName: opts.channelName,
+    });
+  }
 }
 
 // --- HTTP Route Registration ---
@@ -291,6 +425,7 @@ export function registerRoutes(
         instanceToken?: string;
         functionName?: string;
         args?: Record<string, unknown>;
+        estimatedCost?: number;
       };
       try {
         body = await request.json();
@@ -298,7 +433,7 @@ export function registerRoutes(
         return jsonResponse({ error: "Invalid JSON body" }, 400);
       }
 
-      const { instanceToken, functionName, args } = body;
+      const { instanceToken, functionName, args, estimatedCost } = body;
 
       if (!instanceToken || !functionName) {
         return jsonResponse(
@@ -308,13 +443,14 @@ export function registerRoutes(
       }
 
       // Step 1: Authorize the request (mutation -- validates token, checks permissions,
-      // updates counters, returns function handle)
+      // circuit breaker, updates counters, returns function handle)
       const authResult = await ctx.runMutation(
         component.gateway.authorizeRequest,
         {
           instanceToken,
           functionName,
           appName: config.appName,
+          estimatedCost,
         },
       );
 
@@ -324,13 +460,27 @@ export function registerRoutes(
             ? ` (matchedPattern="${authResult.matchedPattern}", permission="${authResult.matchedPermission}")`
             : "";
         // Log the denied access
+        const permission =
+          authResult.statusCode === 429 ? "rate_limited" : "deny";
         await ctx.runMutation(component.gateway.logAccess, {
           agentId: authResult.agentId ?? "unknown",
           appName: config.appName,
           functionCalled: functionName,
-          permission: "deny",
+          permission,
           errorMessage: authResult.error + detailSuffix,
         });
+
+        // For rate-limited responses, include Retry-After header
+        if (
+          authResult.statusCode === 429 &&
+          authResult.retryAfterSeconds !== undefined
+        ) {
+          return jsonResponseWithHeaders(
+            { error: authResult.error },
+            authResult.statusCode,
+            { "Retry-After": String(authResult.retryAfterSeconds) },
+          );
+        }
 
         return jsonResponse(
           { error: authResult.error },
@@ -469,13 +619,270 @@ export function registerRoutes(
       }
     }),
   });
+
+  // --- POST /agent-bridge/channels ---
+  // Create a new channel (admin operation)
+  http.route({
+    path: `${prefix}/channels`,
+    method: "POST",
+    handler: httpActionGeneric(async (ctx, request) => {
+      let body: {
+        channelName?: string;
+        description?: string;
+      };
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: "Invalid JSON body" }, 400);
+      }
+
+      const { channelName, description } = body;
+
+      if (!channelName) {
+        return jsonResponse(
+          { error: "Missing required field: channelName" },
+          400,
+        );
+      }
+
+      try {
+        const channelId = await ctx.runMutation(
+          component.channels.createChannel,
+          {
+            appName: config.appName,
+            channelName,
+            description,
+          },
+        );
+
+        return jsonResponse({ channelId, channelName }, 200);
+      } catch (error: unknown) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to create channel";
+        return jsonResponse({ error: errorMessage }, 500);
+      }
+    }),
+  });
+
+  // --- GET /agent-bridge/channels ---
+  // List active channels for this app
+  http.route({
+    path: `${prefix}/channels`,
+    method: "GET",
+    handler: httpActionGeneric(async (ctx) => {
+      try {
+        const channels = await ctx.runQuery(
+          component.channels.listChannels,
+          { appName: config.appName },
+        );
+
+        return jsonResponse({ channels }, 200);
+      } catch (error: unknown) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to list channels";
+        return jsonResponse({ error: errorMessage }, 500);
+      }
+    }),
+  });
+
+  // --- POST /agent-bridge/channels/post ---
+  // Post a message to a channel (requires instanceToken)
+  http.route({
+    path: `${prefix}/channels/post`,
+    method: "POST",
+    handler: httpActionGeneric(async (ctx, request) => {
+      let body: {
+        instanceToken?: string;
+        channelName?: string;
+        payload?: string;
+        priority?: number;
+        ttlMinutes?: number;
+      };
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: "Invalid JSON body" }, 400);
+      }
+
+      const { instanceToken, channelName, payload, priority, ttlMinutes } =
+        body;
+
+      if (!instanceToken || !channelName || !payload) {
+        return jsonResponse(
+          {
+            error:
+              "Missing required fields: instanceToken, channelName, payload",
+          },
+          400,
+        );
+      }
+
+      try {
+        const result = await ctx.runMutation(
+          component.channels.postMessage,
+          {
+            instanceToken,
+            appName: config.appName,
+            channelName,
+            payload,
+            priority,
+            ttlMinutes,
+          },
+        );
+
+        return jsonResponse(result, 200);
+      } catch (error: unknown) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to post message";
+        // Map authentication errors to appropriate status codes
+        if (
+          errorMessage.includes("Invalid instance token") ||
+          errorMessage.includes("expired")
+        ) {
+          return jsonResponse({ error: errorMessage }, 401);
+        }
+        if (
+          errorMessage.includes("revoked") ||
+          errorMessage.includes("does not match")
+        ) {
+          return jsonResponse({ error: errorMessage }, 403);
+        }
+        return jsonResponse({ error: errorMessage }, 500);
+      }
+    }),
+  });
+
+  // --- POST /agent-bridge/channels/read ---
+  // Read messages from a channel (POST because it has body with filters)
+  http.route({
+    path: `${prefix}/channels/read`,
+    method: "POST",
+    handler: httpActionGeneric(async (ctx, request) => {
+      let body: {
+        instanceToken?: string;
+        channelName?: string;
+        limit?: number;
+        after?: number;
+      };
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: "Invalid JSON body" }, 400);
+      }
+
+      const { instanceToken, channelName, limit, after } = body;
+
+      if (!instanceToken || !channelName) {
+        return jsonResponse(
+          {
+            error: "Missing required fields: instanceToken, channelName",
+          },
+          400,
+        );
+      }
+
+      try {
+        const messages = await ctx.runQuery(
+          component.channels.readMessages,
+          {
+            instanceToken,
+            appName: config.appName,
+            channelName,
+            limit,
+            after,
+          },
+        );
+
+        return jsonResponse({ messages }, 200);
+      } catch (error: unknown) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to read messages";
+        if (
+          errorMessage.includes("Invalid instance token") ||
+          errorMessage.includes("expired")
+        ) {
+          return jsonResponse({ error: errorMessage }, 401);
+        }
+        if (
+          errorMessage.includes("revoked") ||
+          errorMessage.includes("does not match")
+        ) {
+          return jsonResponse({ error: errorMessage }, 403);
+        }
+        return jsonResponse({ error: errorMessage }, 500);
+      }
+    }),
+  });
+
+  // --- POST /agent-bridge/channels/mark-read ---
+  // Mark a message as read by an agent
+  http.route({
+    path: `${prefix}/channels/mark-read`,
+    method: "POST",
+    handler: httpActionGeneric(async (ctx, request) => {
+      let body: {
+        instanceToken?: string;
+        messageId?: string;
+      };
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: "Invalid JSON body" }, 400);
+      }
+
+      const { instanceToken, messageId } = body;
+
+      if (!instanceToken || !messageId) {
+        return jsonResponse(
+          {
+            error: "Missing required fields: instanceToken, messageId",
+          },
+          400,
+        );
+      }
+
+      try {
+        const success = await ctx.runMutation(
+          component.channels.markAsRead,
+          {
+            instanceToken,
+            appName: config.appName,
+            messageId,
+          },
+        );
+
+        return jsonResponse({ success }, 200);
+      } catch (error: unknown) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to mark as read";
+        if (
+          errorMessage.includes("Invalid instance token") ||
+          errorMessage.includes("expired")
+        ) {
+          return jsonResponse({ error: errorMessage }, 401);
+        }
+        return jsonResponse({ error: errorMessage }, 500);
+      }
+    }),
+  });
 }
 
-// --- Helper ---
+// --- Helpers ---
 
 function jsonResponse(data: unknown, status: number): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+function jsonResponseWithHeaders(
+  data: unknown,
+  status: number,
+  extraHeaders: Record<string, string>,
+): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json", ...extraHeaders },
   });
 }

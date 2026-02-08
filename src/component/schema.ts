@@ -92,6 +92,55 @@ export default defineSchema({
     .index("by_agent_and_timestamp", ["agentId", "timestamp"])
     .index("by_app_and_function", ["appName", "functionCalled"]),
 
+  // Circuit breaker counters (per agent, per app, per hour window)
+  circuitCounters: defineTable({
+    agentId: v.string(),
+    appName: v.string(),
+    windowHour: v.string(), // "2026-02-08T14" (ISO truncated to hour)
+    requestCount: v.number(),
+    tokenEstimate: v.number(),
+    isBlocked: v.boolean(),
+    blockedReason: v.optional(v.string()),
+    blockedAt: v.optional(v.number()),
+  })
+    .index("by_agentId_and_appName_and_windowHour", [
+      "agentId",
+      "appName",
+      "windowHour",
+    ])
+    .index("by_isBlocked", ["isBlocked"]),
+
+  // A2A intra-app channels (thematic channels within an app)
+  appChannels: defineTable({
+    appName: v.string(),
+    channelName: v.string(),
+    description: v.optional(v.string()),
+    createdAt: v.number(),
+    isActive: v.boolean(),
+  }).index("by_appName_and_channelName", ["appName", "channelName"]),
+
+  // A2A channel messages
+  channelMessages: defineTable({
+    appName: v.string(),
+    channelName: v.string(),
+    messageId: v.string(), // UUID
+    fromAgentId: v.string(),
+    payload: v.string(), // JSON serialized
+    metadata: v.object({
+      priority: v.number(), // 1-10
+      ttl: v.number(), // TTL in ms
+    }),
+    sentAt: v.number(),
+    expiresAt: v.number(),
+    readBy: v.array(v.string()), // Array of agentIds that have read this message
+  })
+    .index("by_appName_and_channelName_and_sentAt", [
+      "appName",
+      "channelName",
+      "sentAt",
+    ])
+    .index("by_expiresAt", ["expiresAt"]),
+
   // Per-app configuration (no global singleton)
   appConfigs: defineTable({
     appName: v.string(),

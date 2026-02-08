@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as channels from "../channels.js";
+import type * as circuitBreaker from "../circuitBreaker.js";
 import type * as gateway from "../gateway.js";
 import type * as permissions from "../permissions.js";
 import type * as provisioning from "../provisioning.js";
@@ -21,6 +23,8 @@ import type {
 import { anyApi, componentsGeneric } from "convex/server";
 
 const fullApi: ApiFromModules<{
+  channels: typeof channels;
+  circuitBreaker: typeof circuitBreaker;
   gateway: typeof gateway;
   permissions: typeof permissions;
   provisioning: typeof provisioning;
