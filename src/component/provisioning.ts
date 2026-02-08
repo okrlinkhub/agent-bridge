@@ -172,8 +172,11 @@ export const provisionAgent = mutation({
       usedCount: tokenRecord.usedCount + 1,
     });
 
-    // Setup default permissions from component config
-    const config = await ctx.db.query("componentConfig").first();
+    // Setup default permissions from app-specific config
+    const config = await ctx.db
+      .query("appConfigs")
+      .withIndex("by_app_name", (q) => q.eq("appName", args.appName))
+      .unique();
     if (config && config.defaultPermissions.length > 0) {
       for (const perm of config.defaultPermissions) {
         await ctx.db.insert("functionPermissions", {
@@ -349,8 +352,8 @@ export const listAgents = query({
 });
 
 /**
- * Configure the component (set appName and default permissions).
- * This is an internal mutation called via the client class.
+ * Configure app defaults (per-app) for provisioning.
+ * This is a mutation called via the client class.
  */
 export const configure = mutation({
   args: {
@@ -374,8 +377,11 @@ export const configure = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    // Upsert: replace existing config
-    const existing = await ctx.db.query("componentConfig").first();
+    // Upsert: replace existing config for this app
+    const existing = await ctx.db
+      .query("appConfigs")
+      .withIndex("by_app_name", (q) => q.eq("appName", args.appName))
+      .unique();
 
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -384,7 +390,7 @@ export const configure = mutation({
         configuredAt: Date.now(),
       });
     } else {
-      await ctx.db.insert("componentConfig", {
+      await ctx.db.insert("appConfigs", {
         appName: args.appName,
         defaultPermissions: args.defaultPermissions,
         configuredAt: Date.now(),

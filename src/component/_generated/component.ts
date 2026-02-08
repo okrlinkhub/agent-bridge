@@ -35,7 +35,14 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             functionHandle: string;
             functionType: "query" | "mutation" | "action";
           }
-        | { authorized: false; error: string; statusCode: number },
+        | {
+            agentId?: string;
+            authorized: false;
+            error: string;
+            matchedPattern?: string;
+            matchedPermission?: "allow" | "deny" | "rate_limited";
+            statusCode: number;
+          },
         Name
       >;
       logAccess: FunctionReference<
@@ -85,6 +92,30 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         { agentId: string; appName: string },
         number,
+        Name
+      >;
+      debugMatchPermission: FunctionReference<
+        "query",
+        "internal",
+        { agentId: string; appName: string; functionName: string },
+        {
+          bestMatch?: {
+            functionPattern: string;
+            permission: "allow" | "deny" | "rate_limited";
+            specificity: number;
+          };
+          functionName: string;
+          matches: Array<{
+            functionPattern: string;
+            permission: "allow" | "deny" | "rate_limited";
+            specificity: number;
+          }>;
+          permissions: Array<{
+            functionPattern: string;
+            permission: "allow" | "deny" | "rate_limited";
+            specificity: number;
+          }>;
+        },
         Name
       >;
       listPermissions: FunctionReference<

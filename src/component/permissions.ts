@@ -22,13 +22,13 @@ const permissionResultValidator = v.object({
 
 /**
  * Calculate specificity score for a pattern.
- * More specific patterns (fewer wildcards, longer) get higher scores.
+ * More specific patterns (longer fixed prefix before the first wildcard)
+ * get higher scores.
  */
 function patternSpecificity(pattern: string): number {
-  if (pattern === "*") return 0;
-  const wildcardCount = (pattern.match(/\*/g) || []).length;
-  // Longer patterns with fewer wildcards are more specific
-  return pattern.length * 10 - wildcardCount * 100;
+  const wildcardIndex = pattern.indexOf("*");
+  if (wildcardIndex === -1) return pattern.length;
+  return wildcardIndex;
 }
 
 /**
@@ -245,5 +245,77 @@ export const clearPermissions = mutation({
     }
 
     return perms.length;
+  },
+});
+
+/**
+ * Debug helper: show permission matching for a specific function call.
+ */
+export const debugMatchPermission = query({
+  args: {
+    agentId: v.string(),
+    appName: v.string(),
+    functionName: v.string(),
+  },
+  returns: v.object({
+    functionName: v.string(),
+    permissions: v.array(
+      v.object({
+        functionPattern: v.string(),
+        permission: v.union(
+          v.literal("allow"),
+          v.literal("deny"),
+          v.literal("rate_limited"),
+        ),
+        specificity: v.number(),
+      }),
+    ),
+    matches: v.array(
+      v.object({
+        functionPattern: v.string(),
+        permission: v.union(
+          v.literal("allow"),
+          v.literal("deny"),
+          v.literal("rate_limited"),
+        ),
+        specificity: v.number(),
+      }),
+    ),
+    bestMatch: v.optional(
+      v.object({
+        functionPattern: v.string(),
+        permission: v.union(
+          v.literal("allow"),
+          v.literal("deny"),
+          v.literal("rate_limited"),
+        ),
+        specificity: v.number(),
+      }),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const permissions = await ctx.db
+      .query("functionPermissions")
+      .withIndex("by_agent_and_app", (q) =>
+        q.eq("agentId", args.agentId).eq("appName", args.appName),
+      )
+      .collect();
+
+    const withSpecificity = permissions.map((p) => ({
+      functionPattern: p.functionPattern,
+      permission: p.permission,
+      specificity: patternSpecificity(p.functionPattern),
+    }));
+
+    const matches = withSpecificity
+      .filter((p) => matchesPattern(args.functionName, p.functionPattern))
+      .sort((a, b) => b.specificity - a.specificity);
+
+    return {
+      functionName: args.functionName,
+      permissions: withSpecificity,
+      matches,
+      bestMatch: matches[0],
+    };
   },
 });

@@ -319,13 +319,17 @@ export function registerRoutes(
       );
 
       if (!authResult.authorized) {
+        const detailSuffix =
+          authResult.matchedPattern && authResult.matchedPermission
+            ? ` (matchedPattern="${authResult.matchedPattern}", permission="${authResult.matchedPermission}")`
+            : "";
         // Log the denied access
         await ctx.runMutation(component.gateway.logAccess, {
-          agentId: "unknown",
+          agentId: authResult.agentId ?? "unknown",
           appName: config.appName,
           functionCalled: functionName,
           permission: "deny",
-          errorMessage: authResult.error,
+          errorMessage: authResult.error + detailSuffix,
         });
 
         return jsonResponse(

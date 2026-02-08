@@ -15,9 +15,9 @@ async function hashToken(token: string): Promise<string> {
 // --- Pattern matching (same logic as permissions.ts) ---
 
 function patternSpecificity(pattern: string): number {
-  if (pattern === "*") return 0;
-  const wildcardCount = (pattern.match(/\*/g) || []).length;
-  return pattern.length * 10 - wildcardCount * 100;
+  const wildcardIndex = pattern.indexOf("*");
+  if (wildcardIndex === -1) return pattern.length;
+  return wildcardIndex;
 }
 
 function matchesPattern(functionName: string, pattern: string): boolean {
@@ -45,6 +45,15 @@ const authorizeResultValidator = v.union(
     authorized: v.literal(false),
     error: v.string(),
     statusCode: v.number(),
+    agentId: v.optional(v.string()),
+    matchedPattern: v.optional(v.string()),
+    matchedPermission: v.optional(
+      v.union(
+        v.literal("allow"),
+        v.literal("deny"),
+        v.literal("rate_limited"),
+      ),
+    ),
   }),
 );
 
@@ -115,6 +124,7 @@ export const authorizeRequest = mutation({
         authorized: false as const,
         error: "Agent has been revoked",
         statusCode: 403,
+        agentId,
       };
     }
 
@@ -135,10 +145,14 @@ export const authorizeRequest = mutation({
       );
 
     if (matches.length === 0 || matches[0].permission === "deny") {
+      const bestMatch = matches[0];
       return {
         authorized: false as const,
         error: "Function not authorized for this agent",
         statusCode: 403,
+        agentId,
+        matchedPattern: bestMatch?.functionPattern,
+        matchedPermission: bestMatch?.permission,
       };
     }
 
@@ -158,6 +172,7 @@ export const authorizeRequest = mutation({
         authorized: false as const,
         error: `Function "${args.functionName}" is not registered`,
         statusCode: 404,
+        agentId,
       };
     }
 

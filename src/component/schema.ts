@@ -92,8 +92,8 @@ export default defineSchema({
     .index("by_agent_and_timestamp", ["agentId", "timestamp"])
     .index("by_app_and_function", ["appName", "functionCalled"]),
 
-  // Component-level configuration (singleton "globals" table)
-  componentConfig: defineTable({
+  // Per-app configuration (no global singleton)
+  appConfigs: defineTable({
     appName: v.string(),
     defaultPermissions: v.array(
       v.object({
@@ -112,5 +112,5 @@ export default defineSchema({
       }),
     ),
     configuredAt: v.number(),
-  }),
+  }).index("by_app_name", ["appName"]),
 });
