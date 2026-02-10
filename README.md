@@ -49,14 +49,12 @@ registerAgentBridgeRoutes(http);
 export default http;
 ```
 
-Se vuoi usare il flusso multi-app gestito dal bridge, passa anche la service key:
+Configura auth strict multi-service in `registerRoutes`:
 
 ```ts
 registerRoutes(http, components.agentBridge, bridgeConfig, {
   pathPrefix: "/agent",
-  serviceKey:
-    (globalThis as { process?: { env?: Record<string, string> } }).process?.env
-      ?.AGENT_BRIDGE_SERVICE_KEY,
+  serviceKeysEnvVar: "AGENT_BRIDGE_SERVICE_KEYS_JSON",
 });
 ```
 
@@ -89,13 +87,11 @@ export default defineAgentBridgeConfig({
 
 ### `POST /agent/execute`
 
-Header richiesti (una delle due modalita):
+Header richiesti (strict-only):
 
-- Legacy:
-  - `X-Agent-API-Key: <api-key>`
-- Service-to-bridge (consigliato per OpenClaw multi-app):
-  - `X-Agent-Service-Key: <shared-service-secret>`
-  - `X-Agent-App: <app-key>` (es. `crm`, `billing`)
+- `X-Agent-Service-Id: <service-id>`
+- `X-Agent-Service-Key: <service-key>`
+- `X-Agent-App: <app-key>` (es. `crm`, `billing`)
 
 Body richiesto:
 
@@ -115,14 +111,15 @@ Codici principali: `401`, `403`, `404`, `429`, `500`.
 
 ## Setup OpenClaw multi-app (semplice su Railway)
 
-Per un solo servizio OpenClaw che gestisce piu applicativi:
+Per piu istanze OpenClaw che gestiscono piu applicativi:
 
-1. In Railway imposta solo:
-   - `AGENT_BRIDGE_SERVICE_KEY=<secret-unico>`
+1. In Convex imposta:
+   - `AGENT_BRIDGE_SERVICE_KEYS_JSON={"openclaw-prod":"<key>","openclaw-staging":"<key>"}`
 2. In Convex registra un agente per app con `appKey` univoco:
    - `crm`, `billing`, `warehouse`, ecc.
 3. OpenClaw invia per ogni chiamata:
-   - `X-Agent-Service-Key` (sempre uguale)
+   - `X-Agent-Service-Id` (identita istanza)
+   - `X-Agent-Service-Key` (chiave della specifica istanza)
    - `X-Agent-App` (varia per app target)
 
 Puoi generare una service key con l'helper del package:
@@ -170,6 +167,13 @@ await ctx.runMutation(components.agentBridge.permissions.setAgentPermissions, {
 });
 ```
 
+## Breaking change strict-only
+
+Da questa versione:
+- `X-Agent-API-Key` non e piu supportato nel runtime HTTP;
+- non esiste fallback single-key;
+- e obbligatoria la triade `X-Agent-Service-Id` + `X-Agent-Service-Key` + `X-Agent-App`.
+
 ## Migrazione 0.2 -> next major
 
 Breaking changes principali:
@@ -181,7 +185,7 @@ Breaking changes principali:
 Nuovo flusso:
 
 1. config funzioni in `agent-bridge.config.ts`;
-2. auth via `X-Agent-API-Key` (legacy) oppure `X-Agent-Service-Key + X-Agent-App` (multi-app);
+2. auth strict via `X-Agent-Service-Id + X-Agent-Service-Key + X-Agent-App`;
 3. policy in batch via mutation del componente;
 4. log centralizzato in `agentLogs`.
 

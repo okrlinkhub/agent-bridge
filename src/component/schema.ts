@@ -40,6 +40,7 @@ export default defineSchema({
 
   agentLogs: defineTable({
     agentId: v.id("agents"),
+    serviceId: v.optional(v.string()),
     functionKey: v.string(),
     args: v.any(),
     result: v.optional(v.any()),
@@ -48,6 +49,7 @@ export default defineSchema({
     timestamp: v.number(),
   })
     .index("by_agentId_and_timestamp", ["agentId", "timestamp"])
+    .index("by_serviceId_and_timestamp", ["serviceId", "timestamp"])
     .index("by_functionKey", ["functionKey"])
     .index("by_timestamp", ["timestamp"]),
 });

@@ -112,6 +112,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           error?: string;
           functionKey: string;
           result?: any;
+          serviceId?: string;
           timestamp: number;
         },
         null,
@@ -120,7 +121,12 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       queryAccessLog: FunctionReference<
         "query",
         "internal",
-        { agentId?: string; functionKey?: string; limit?: number },
+        {
+          agentId?: string;
+          functionKey?: string;
+          limit?: number;
+          serviceId?: string;
+        },
         Array<{
           _id: string;
           agentId: string;
@@ -129,6 +135,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           error?: string;
           functionKey: string;
           result?: any;
+          serviceId?: string;
           timestamp: number;
         }>,
         Name

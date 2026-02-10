@@ -157,6 +157,7 @@ export const agents = query({
 export const accessLogs = query({
   args: {
     agentId: v.optional(v.string()),
+    serviceId: v.optional(v.string()),
     functionKey: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
@@ -165,6 +166,7 @@ export const accessLogs = query({
       _id: v.string(),
       timestamp: v.number(),
       agentId: v.string(),
+      serviceId: v.optional(v.string()),
       functionKey: v.string(),
       args: v.any(),
       result: v.optional(v.any()),
@@ -175,6 +177,7 @@ export const accessLogs = query({
   handler: async (ctx, args) => {
     const logs = await ctx.runQuery(components.agentBridge.gateway.queryAccessLog, {
       agentId: args.agentId as never,
+      serviceId: args.serviceId,
       functionKey: args.functionKey,
       limit: args.limit,
     });
@@ -182,6 +185,7 @@ export const accessLogs = query({
       _id: log._id,
       timestamp: log.timestamp,
       agentId: log.agentId,
+      serviceId: log.serviceId,
       functionKey: log.functionKey,
       args: log.args,
       result: log.result,

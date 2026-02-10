@@ -60,9 +60,7 @@ export function registerAgentBridgeRoutes(
 ) {
   registerRoutes(http, components.agentBridge, config, {
     pathPrefix: "/agent",
-    serviceKey:
-      (globalThis as { process?: { env?: Record<string, string> } }).process?.env
-        ?.AGENT_BRIDGE_SERVICE_KEY,
+    serviceKeysEnvVar: "AGENT_BRIDGE_SERVICE_KEYS_JSON",
   });
 }
 `;
@@ -94,10 +92,10 @@ export default http;
 - components.agentBridge.permissions.setAgentPermissions
 - components.agentBridge.permissions.setFunctionOverrides
 
-4) For multi-app OpenClaw deployments, set one service secret in Railway:
-- AGENT_BRIDGE_SERVICE_KEY=<shared-secret>
-- OpenClaw sends X-Agent-Service-Key and X-Agent-App headers
-- Bridge resolves app -> agent internally (keep legacy X-Agent-API-Key for compatibility)
+4) Configure strict service auth map (required):
+- AGENT_BRIDGE_SERVICE_KEYS_JSON={"openclaw-prod":"<key>","openclaw-staging":"<key>"}
+- OpenClaw must send X-Agent-Service-Id, X-Agent-Service-Key and X-Agent-App
+- Legacy X-Agent-API-Key is not supported in strict mode
 `;
 
 async function main() {

@@ -14,22 +14,21 @@ La nuova major elimina il flusso legacy basato su:
 e introduce un flusso **config-first**:
 
 - file `agent-bridge.config.ts` con funzioni esposte;
-- endpoint `POST /agent/execute` con header `X-Agent-API-Key`;
+- endpoint `POST /agent/execute` con header strict:
+  - `X-Agent-Service-Id`
+  - `X-Agent-Service-Key`
+  - `X-Agent-App`
 - permessi/override in batch via mutation del componente;
 - log in `agentLogs`.
 
-Per setup multi-app con un solo servizio OpenClaw, e disponibile anche auth service-to-bridge:
-
-- header `X-Agent-Service-Key` (secret condiviso, singolo);
-- header `X-Agent-App` (routing app);
-- risoluzione app -> agente nel bridge Convex.
+Questa versione e strict-only: il runtime HTTP non supporta fallback legacy.
 
 ## Mapping veloce vecchio -> nuovo
 
 | Legacy | Nuovo |
 |---|---|
 | `POST /agent-bridge/provision` | rimosso |
-| `instanceToken` | `X-Agent-API-Key` |
+| `instanceToken` | `X-Agent-Service-Id + X-Agent-Service-Key` |
 | `POST /agent-bridge/execute` | `POST /agent/execute` |
 | `GET /agent-bridge/health` | rimosso |
 | runtime `registerFunction` | config statica `agent-bridge.config.ts` |
@@ -76,10 +75,9 @@ export default defineAgentBridgeConfig({
 
 Header:
 
-- `X-Agent-API-Key: <plaintext-api-key>`
-- oppure:
-  - `X-Agent-Service-Key: <shared-service-secret>`
-  - `X-Agent-App: <app-key>`
+- `X-Agent-Service-Id: <service-id>`
+- `X-Agent-Service-Key: <service-key>`
+- `X-Agent-App: <app-key>`
 
 Body:
 
@@ -102,16 +100,14 @@ Status tipici: `401`, `403`, `404`, `429`, `500`.
 Aggiorna la skill/automazione in modo che:
 
 1. non usi piu `provision` e `instanceToken`;
-2. passi sempre la API key in header `X-Agent-API-Key`;
+2. passi sempre `X-Agent-Service-Id`, `X-Agent-Service-Key` e `X-Agent-App`;
 3. usi `functionKey` (non `functionName`);
 4. mantenga una mappa interna delle funzioni da `agent-bridge.config.ts`;
 5. interpreti `429` e `Retry-After` con backoff;
 6. tratti `403` come policy failure (non retry immediato);
 7. non provi a registrare funzioni runtime.
 
-Per architetture multi-app:
-
-8. preferisca `X-Agent-Service-Key + X-Agent-App` con controllo centralizzato nel bridge.
+8. non invii `X-Agent-API-Key` (non supportato nel runtime strict-only).
 
 ## Regole operative consigliate per l’agente
 
@@ -130,16 +126,17 @@ Per architetture multi-app:
 
 ## Setup consigliato OpenClaw + Railway (multi-app)
 
-Scenario: un solo servizio OpenClaw gestisce piu applicativi.
+Scenario: piu servizi OpenClaw (istanze Railway) e piu applicativi.
 
-1. Configura in Railway solo:
-   - `AGENT_BRIDGE_SERVICE_KEY=<secret-unico>`
-   - opzionale: genera il valore con `generateAgentBridgeServiceKey()`
+1. Configura in Convex:
+   - `AGENT_BRIDGE_SERVICE_KEYS_JSON={"openclaw-prod":"<key>","openclaw-staging":"<key>"}`
+   - opzionale: genera i valori con `generateAgentBridgeServiceKey()`
 2. Registra un agente per applicativo nel bridge, assegnando `appKey` univoco.
 3. OpenClaw invia sempre:
-   - `X-Agent-Service-Key` (fisso)
+   - `X-Agent-Service-Id` (id istanza, es. `openclaw-prod`)
+   - `X-Agent-Service-Key` (chiave istanza)
    - `X-Agent-App` (target applicativo)
-4. Mantieni `X-Agent-API-Key` solo per compatibilita con client legacy.
+4. Non usare `X-Agent-API-Key` nel nuovo runtime strict-only.
 
 ## Comando init
 

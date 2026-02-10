@@ -100,6 +100,7 @@ export const authorizeByAppKey = mutation({
 export const logAccess = mutation({
   args: {
     agentId: v.id("agents"),
+    serviceId: v.optional(v.string()),
     functionKey: v.string(),
     args: v.any(),
     result: v.optional(v.any()),
@@ -112,6 +113,7 @@ export const logAccess = mutation({
     await ctx.db.insert("agentLogs", {
       timestamp: args.timestamp,
       agentId: args.agentId,
+      serviceId: args.serviceId,
       functionKey: args.functionKey,
       args: args.args,
       result: args.result,
@@ -128,6 +130,7 @@ export const logAccess = mutation({
 export const queryAccessLog = query({
   args: {
     agentId: v.optional(v.id("agents")),
+    serviceId: v.optional(v.string()),
     functionKey: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
@@ -136,6 +139,7 @@ export const queryAccessLog = query({
       _id: v.id("agentLogs"),
       timestamp: v.number(),
       agentId: v.id("agents"),
+      serviceId: v.optional(v.string()),
       functionKey: v.string(),
       args: v.any(),
       result: v.optional(v.any()),
@@ -145,6 +149,33 @@ export const queryAccessLog = query({
   ),
   handler: async (ctx, args) => {
     const limit = args.limit ?? 50;
+
+    if (args.serviceId !== undefined) {
+      const logs = await ctx.db
+        .query("agentLogs")
+        .withIndex("by_serviceId_and_timestamp", (q) =>
+          q.eq("serviceId", args.serviceId),
+        )
+        .order("desc")
+        .take(limit);
+
+      const filteredLogs =
+        args.functionKey !== undefined
+          ? logs.filter((log) => log.functionKey === args.functionKey)
+          : logs;
+
+      return filteredLogs.map((l) => ({
+        _id: l._id,
+        timestamp: l.timestamp,
+        agentId: l.agentId,
+        serviceId: l.serviceId,
+        functionKey: l.functionKey,
+        args: l.args,
+        result: l.result,
+        error: l.error,
+        duration: l.duration,
+      }));
+    }
 
     const agentId = args.agentId;
     if (agentId !== undefined) {
@@ -160,6 +191,7 @@ export const queryAccessLog = query({
         _id: l._id,
         timestamp: l.timestamp,
         agentId: l.agentId,
+        serviceId: l.serviceId,
         functionKey: l.functionKey,
         args: l.args,
         result: l.result,
@@ -181,6 +213,7 @@ export const queryAccessLog = query({
       _id: l._id,
       timestamp: l.timestamp,
       agentId: l.agentId,
+      serviceId: l.serviceId,
       functionKey: l.functionKey,
       args: l.args,
       result: l.result,

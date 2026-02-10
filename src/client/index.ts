@@ -136,8 +136,8 @@ type ExecuteRequestBody = {
 
 type RegisterRoutesOptions = {
   pathPrefix?: string;
-  serviceKey?: string;
-  serviceKeyEnvVar?: string;
+  serviceKeys?: Record<string, string>;
+  serviceKeysEnvVar?: string;
 };
 
 export function registerRoutes(
@@ -147,9 +147,10 @@ export function registerRoutes(
   options?: RegisterRoutesOptions,
 ) {
   const prefix = options?.pathPrefix ?? "/agent";
-  const expectedServiceKey =
-    options?.serviceKey ??
-    readRuntimeEnv(options?.serviceKeyEnvVar ?? "AGENT_BRIDGE_SERVICE_KEY");
+  const configuredServiceKeys = resolveConfiguredServiceKeys({
+    serviceKeys: options?.serviceKeys,
+    serviceKeysEnvVar: options?.serviceKeysEnvVar ?? "AGENT_BRIDGE_SERVICE_KEYS_JSON",
+  });
   const normalizedConfig = normalizeAgentBridgeConfig(bridgeConfig);
   const availableFunctionKeys = Object.keys(normalizedConfig.functions);
 
@@ -157,8 +158,6 @@ export function registerRoutes(
     path: `${prefix}/execute`,
     method: "POST",
     handler: httpActionGeneric(async (ctx, request) => {
-      const apiKey = request.headers.get("X-Agent-API-Key");
-
       let body: ExecuteRequestBody;
       try {
         body = await request.json();
@@ -185,22 +184,22 @@ export function registerRoutes(
         );
       }
 
-      const authResult = apiKey
-        ? await ctx.runMutation(component.gateway.authorizeRequest, {
-            apiKey,
-            functionKey,
-            estimatedCost: body.estimatedCost,
-          })
-        : await authorizeWithServiceHeaders({
-            request,
-            expectedServiceKey,
-            authorizeByAppKey: (appKey) =>
-              ctx.runMutation(component.gateway.authorizeByAppKey, {
-                appKey,
-                functionKey,
-                estimatedCost: body.estimatedCost,
-              }),
-          });
+      const headerValidation = validateStrictServiceHeaders({
+        request,
+        configuredServiceKeys,
+      });
+      if (!headerValidation.valid) {
+        return jsonResponse(
+          { success: false, error: headerValidation.error },
+          headerValidation.statusCode,
+        );
+      }
+
+      const authResult = await ctx.runMutation(component.gateway.authorizeByAppKey, {
+        appKey: headerValidation.appKey,
+        functionKey,
+        estimatedCost: body.estimatedCost,
+      });
 
       if (!authResult.authorized) {
         const response = jsonResponse(
@@ -239,6 +238,7 @@ export function registerRoutes(
 
         await ctx.runMutation(component.gateway.logAccess, {
           agentId: authResult.agentId as never,
+          serviceId: headerValidation.serviceId,
           functionKey,
           args,
           result,
@@ -255,6 +255,7 @@ export function registerRoutes(
 
         await ctx.runMutation(component.gateway.logAccess, {
           agentId: authResult.agentId as never,
+          serviceId: headerValidation.serviceId,
           functionKey,
           args: body.args ?? {},
           error: errorMessage,
@@ -346,54 +347,71 @@ function jsonResponse(data: unknown, status: number): Response {
   });
 }
 
-async function authorizeWithServiceHeaders(args: {
+function validateStrictServiceHeaders(args: {
   request: Request;
-  expectedServiceKey?: string;
-  authorizeByAppKey: (
-    appKey: string,
-  ) => Promise<
-    | { authorized: true; agentId: string }
-    | {
-        authorized: false;
-        error: string;
-        statusCode: number;
-        agentId?: string;
-        retryAfterSeconds?: number;
-      }
-  >;
-}) {
-  const providedServiceKey = args.request.headers.get("X-Agent-Service-Key");
-  const appKey = args.request.headers.get("X-Agent-App");
+  configuredServiceKeys:
+    | { ok: true; keysByServiceId: Record<string, string> }
+    | { ok: false; error: string };
+}):
+  | { valid: true; serviceId: string; appKey: string }
+  | { valid: false; error: string; statusCode: number } {
+  const serviceId = args.request.headers.get("X-Agent-Service-Id")?.trim();
+  const providedServiceKey = args.request.headers
+    .get("X-Agent-Service-Key")
+    ?.trim();
+  const appKey = args.request.headers.get("X-Agent-App")?.trim();
+
+  if (!serviceId) {
+    return {
+      valid: false,
+      error: "Missing required header: X-Agent-Service-Id",
+      statusCode: 400,
+    };
+  }
   if (!providedServiceKey) {
     return {
-      authorized: false as const,
-      error: "Missing authentication header: X-Agent-Service-Key",
-      statusCode: 401,
+      valid: false,
+      error: "Missing required header: X-Agent-Service-Key",
+      statusCode: 400,
     };
   }
   if (!appKey) {
     return {
-      authorized: false as const,
-      error: "Missing routing header: X-Agent-App",
+      valid: false,
+      error: "Missing required header: X-Agent-App",
       statusCode: 400,
     };
   }
-  if (!args.expectedServiceKey) {
+
+  if (!args.configuredServiceKeys.ok) {
     return {
-      authorized: false as const,
-      error:
-        "Bridge service key is not configured. Set AGENT_BRIDGE_SERVICE_KEY or pass registerRoutes({ serviceKey })",
+      valid: false,
+      error: args.configuredServiceKeys.error,
       statusCode: 500,
     };
   }
-  if (providedServiceKey !== args.expectedServiceKey) {
+
+  const expectedServiceKey = args.configuredServiceKeys.keysByServiceId[serviceId];
+  if (!expectedServiceKey) {
     return {
-      authorized: false as const,
+      valid: false,
+      error: `Unknown service id: ${serviceId}`,
+      statusCode: 401,
+    };
+  }
+  if (providedServiceKey !== expectedServiceKey) {
+    return {
+      valid: false,
       error: "Invalid service key",
       statusCode: 401,
     };
   }
-  return await args.authorizeByAppKey(appKey);
+
+  return {
+    valid: true,
+    serviceId,
+    appKey,
+  };
 }
 
 function readRuntimeEnv(name: string): string | undefined {
@@ -405,4 +423,74 @@ function readRuntimeEnv(name: string): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function resolveConfiguredServiceKeys(args: {
+  serviceKeys?: Record<string, string>;
+  serviceKeysEnvVar: string;
+}):
+  | { ok: true; keysByServiceId: Record<string, string> }
+  | { ok: false; error: string } {
+  if (args.serviceKeys) {
+    return sanitizeServiceKeysMap(args.serviceKeys);
+  }
+
+  const json = readRuntimeEnv(args.serviceKeysEnvVar);
+  if (!json) {
+    return {
+      ok: false,
+      error: `Bridge service keys are not configured. Provide registerRoutes({ serviceKeys }) or set ${args.serviceKeysEnvVar}`,
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return {
+      ok: false,
+      error: `Invalid JSON in ${args.serviceKeysEnvVar}`,
+    };
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      error: `${args.serviceKeysEnvVar} must be a JSON object mapping serviceId to serviceKey`,
+    };
+  }
+
+  return sanitizeServiceKeysMap(parsed as Record<string, unknown>);
+}
+
+function sanitizeServiceKeysMap(
+  input: Record<string, unknown>,
+): { ok: true; keysByServiceId: Record<string, string> } | { ok: false; error: string } {
+  const keysByServiceId: Record<string, string> = {};
+  for (const [serviceIdRaw, serviceKeyRaw] of Object.entries(input)) {
+    if (typeof serviceKeyRaw !== "string") {
+      return {
+        ok: false,
+        error: `Invalid service key value for "${serviceIdRaw}"`,
+      };
+    }
+    const serviceId = serviceIdRaw.trim();
+    const serviceKey = serviceKeyRaw.trim();
+    if (!serviceId || !serviceKey) {
+      return {
+        ok: false,
+        error: "Service ids and service keys cannot be empty",
+      };
+    }
+    keysByServiceId[serviceId] = serviceKey;
+  }
+
+  if (Object.keys(keysByServiceId).length === 0) {
+    return {
+      ok: false,
+      error: "At least one service key must be configured",
+    };
+  }
+
+  return { ok: true, keysByServiceId };
 }
