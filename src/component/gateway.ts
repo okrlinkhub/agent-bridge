@@ -1,10 +1,12 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server.js";
+import { mutation, query, type MutationCtx } from "./_generated/server.js";
 import {
   findBestPermissionMatch,
   hashApiKey,
+  normalizeAppKey,
   type PermissionType,
 } from "./agentBridgeUtils.js";
+import type { Doc } from "./_generated/dataModel.js";
 
 const authorizeResultValidator = v.union(
   v.object({
@@ -54,93 +56,40 @@ export const authorizeRequest = mutation({
       };
     }
 
-    if (!agent.enabled) {
-      return {
-        authorized: false as const,
-        error: "Agent disabled",
-        statusCode: 403,
-        agentId: agent._id,
-      };
-    }
-
-    const permissions = await ctx.db
-      .query("agentPermissions")
-      .withIndex("by_agentId", (q) => q.eq("agentId", agent._id))
-      .collect();
-    const matchedRule = findBestPermissionMatch(args.functionKey, permissions);
-    if (!matchedRule || matchedRule.permission === "deny") {
-      return {
-        authorized: false as const,
-        error: `Function ${args.functionKey} not allowed`,
-        statusCode: 403,
-        agentId: agent._id,
-      };
-    }
-
-    const functionOverride = await ctx.db
-      .query("agentFunctions")
-      .withIndex("by_key", (q) => q.eq("key", args.functionKey))
-      .unique();
-    if (functionOverride && !functionOverride.enabled) {
-      return {
-        authorized: false as const,
-        error: `Function ${args.functionKey} disabled`,
-        statusCode: 403,
-        agentId: agent._id,
-      };
-    }
-
-    const effectiveHourlyLimit = resolveEffectiveHourlyLimit(
-      agent.rateLimit,
-      matchedRule.permission,
-      matchedRule.rateLimitConfig?.requestsPerHour,
-      functionOverride?.globalRateLimit,
-    );
-    const oneHourAgo = Date.now() - 60 * 60 * 1000;
-    const recentLogs = await ctx.db
-      .query("agentLogs")
-      .withIndex("by_agentId_and_timestamp", (q) => q.eq("agentId", agent._id))
-      .collect();
-    const recentCallCount = recentLogs.filter(
-      (log) => log.timestamp >= oneHourAgo,
-    ).length;
-    if (recentCallCount >= effectiveHourlyLimit) {
-      return {
-        authorized: false as const,
-        error: "Rate limit exceeded",
-        statusCode: 429,
-        retryAfterSeconds: 3600,
-        agentId: agent._id,
-      };
-    }
-
-    if (
-      matchedRule.permission === "rate_limited" &&
-      matchedRule.rateLimitConfig?.tokenBudget !== undefined
-    ) {
-      const estimatedCost = args.estimatedCost ?? 0;
-      const tokenEstimate = recentLogs
-        .filter((log) => log.timestamp >= oneHourAgo)
-        .reduce((sum, log) => sum + estimateCostFromLog(log.args), 0);
-      if (tokenEstimate + estimatedCost > matchedRule.rateLimitConfig.tokenBudget) {
-        return {
-          authorized: false as const,
-          error: "Token budget exceeded",
-          statusCode: 429,
-          retryAfterSeconds: 3600,
-          agentId: agent._id,
-        };
-      }
-    }
-
-    await ctx.db.patch(agent._id, {
-      lastUsed: Date.now(),
+    return await authorizeAgainstAgent(ctx, {
+      agent,
+      functionKey: args.functionKey,
+      estimatedCost: args.estimatedCost,
     });
+  },
+});
 
-    return {
-      authorized: true as const,
-      agentId: agent._id,
-    };
+export const authorizeByAppKey = mutation({
+  args: {
+    appKey: v.string(),
+    functionKey: v.string(),
+    estimatedCost: v.optional(v.number()),
+  },
+  returns: authorizeResultValidator,
+  handler: async (ctx, args) => {
+    const normalizedAppKey = normalizeAppKey(args.appKey);
+    const agent = await ctx.db
+      .query("agents")
+      .withIndex("by_appKey", (q) => q.eq("appKey", normalizedAppKey))
+      .unique();
+    if (!agent) {
+      return {
+        authorized: false as const,
+        error: `App ${normalizedAppKey} is not registered`,
+        statusCode: 404,
+      };
+    }
+
+    return await authorizeAgainstAgent(ctx, {
+      agent,
+      functionKey: args.functionKey,
+      estimatedCost: args.estimatedCost,
+    });
   },
 });
 
@@ -265,4 +214,99 @@ function estimateCostFromLog(args: unknown): number {
     return args.estimatedCost;
   }
   return 0;
+}
+
+async function authorizeAgainstAgent(
+  ctx: MutationCtx,
+  args: {
+    agent: Doc<"agents">;
+    functionKey: string;
+    estimatedCost?: number;
+  },
+) {
+  if (!args.agent.enabled) {
+    return {
+      authorized: false as const,
+      error: "Agent disabled",
+      statusCode: 403,
+      agentId: args.agent._id,
+    };
+  }
+
+  const permissions = await ctx.db
+    .query("agentPermissions")
+    .withIndex("by_agentId", (q) => q.eq("agentId", args.agent._id))
+    .collect();
+  const matchedRule = findBestPermissionMatch(args.functionKey, permissions);
+  if (!matchedRule || matchedRule.permission === "deny") {
+    return {
+      authorized: false as const,
+      error: `Function ${args.functionKey} not allowed`,
+      statusCode: 403,
+      agentId: args.agent._id,
+    };
+  }
+
+  const functionOverride = await ctx.db
+    .query("agentFunctions")
+    .withIndex("by_key", (q) => q.eq("key", args.functionKey))
+    .unique();
+  if (functionOverride && !functionOverride.enabled) {
+    return {
+      authorized: false as const,
+      error: `Function ${args.functionKey} disabled`,
+      statusCode: 403,
+      agentId: args.agent._id,
+    };
+  }
+
+  const effectiveHourlyLimit = resolveEffectiveHourlyLimit(
+    args.agent.rateLimit,
+    matchedRule.permission,
+    matchedRule.rateLimitConfig?.requestsPerHour,
+    functionOverride?.globalRateLimit,
+  );
+  const oneHourAgo = Date.now() - 60 * 60 * 1000;
+  const recentLogs = await ctx.db
+    .query("agentLogs")
+    .withIndex("by_agentId_and_timestamp", (q) => q.eq("agentId", args.agent._id))
+    .collect();
+  const recentCallCount = recentLogs.filter((log) => log.timestamp >= oneHourAgo).length;
+  if (recentCallCount >= effectiveHourlyLimit) {
+    return {
+      authorized: false as const,
+      error: "Rate limit exceeded",
+      statusCode: 429,
+      retryAfterSeconds: 3600,
+      agentId: args.agent._id,
+    };
+  }
+
+  if (
+    matchedRule.permission === "rate_limited" &&
+    matchedRule.rateLimitConfig?.tokenBudget !== undefined
+  ) {
+    const estimatedCost = args.estimatedCost ?? 0;
+    const tokenEstimate = recentLogs
+      .filter((log) => log.timestamp >= oneHourAgo)
+      .reduce((sum, log) => sum + estimateCostFromLog(log.args), 0);
+    if (tokenEstimate + estimatedCost > matchedRule.rateLimitConfig.tokenBudget) {
+      return {
+        authorized: false as const,
+        error: "Token budget exceeded",
+        statusCode: 429,
+        retryAfterSeconds: 3600,
+        agentId: args.agent._id,
+      };
+    }
+  }
+
+  await ctx.db.patch(args.agent._id, {
+    lastUsed: Date.now(),
+  });
+
+  return {
+    authorized: true as const,
+    agentId: args.agent._id,
+  };
 }

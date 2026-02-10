@@ -1,6 +1,9 @@
 import { useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
-import { generateAgentApiKey } from "@okrlinkhub/agent-bridge";
+import {
+  generateAgentApiKey,
+  generateAgentBridgeServiceKey,
+} from "@okrlinkhub/agent-bridge";
 
 type PermissionRule = {
   pattern: string;
@@ -24,6 +27,7 @@ export function useAgentBridgeAdminClient() {
 
   const createAgentWithPolicies = async (args: {
     name: string;
+    appKey?: string;
     apiKey?: string;
     rateLimit?: number;
     rules?: PermissionRule[];
@@ -32,6 +36,7 @@ export function useAgentBridgeAdminClient() {
     const apiKey = args.apiKey ?? generateAgentApiKey();
     const { agentId } = await createAgentMutation({
       name: args.name,
+      appKey: args.appKey,
       apiKey,
       rateLimit: args.rateLimit,
     });
@@ -53,6 +58,8 @@ export function useAgentBridgeAdminClient() {
   };
 
   const generateApiKey = (prefix?: string) => generateAgentApiKey(prefix);
+  const generateServiceKey = (prefix?: string) =>
+    generateAgentBridgeServiceKey(prefix);
 
   return {
     createAgent: createAgentMutation,
@@ -60,5 +67,6 @@ export function useAgentBridgeAdminClient() {
     setFunctionOverrides: setFunctionOverridesMutation,
     createAgentWithPolicies,
     generateApiKey,
+    generateServiceKey,
   };
 }

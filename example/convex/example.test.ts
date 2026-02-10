@@ -103,4 +103,45 @@ describe("example app", () => {
     }
     expect(authResult.statusCode).toBe(403);
   });
+
+  test("app key auth resolves the correct agent", async () => {
+    const t = initConvexTest();
+    const { agentId } = await t.mutation(components.agentBridge.agents.createAgent, {
+      name: "crm-agent",
+      appKey: "crm",
+      apiKey: "sk_demo_crm",
+      rateLimit: 10,
+    });
+    await t.mutation(api.example.setAgentPermissions, {
+      agentId,
+      rules: [{ pattern: "demo.listItems", permission: "allow" }],
+    });
+
+    const authResult = await t.mutation(
+      components.agentBridge.gateway.authorizeByAppKey,
+      {
+        appKey: "crm",
+        functionKey: "demo.listItems",
+      },
+    );
+
+    expect(authResult.authorized).toBe(true);
+  });
+
+  test("app key auth fails when app is not registered", async () => {
+    const t = initConvexTest();
+    const authResult = await t.mutation(
+      components.agentBridge.gateway.authorizeByAppKey,
+      {
+        appKey: "missing-app",
+        functionKey: "demo.listItems",
+      },
+    );
+
+    expect(authResult.authorized).toBe(false);
+    if (authResult.authorized) {
+      throw new Error("Expected authorization to fail");
+    }
+    expect(authResult.statusCode).toBe(404);
+  });
 });

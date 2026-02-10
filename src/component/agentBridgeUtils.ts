@@ -11,6 +11,10 @@ export async function hashApiKey(apiKey: string): Promise<string> {
     .join("");
 }
 
+export function normalizeAppKey(appKey: string): string {
+  return appKey.trim().toLowerCase();
+}
+
 export function matchesPattern(functionKey: string, pattern: string): boolean {
   if (pattern === "*") {
     return true;

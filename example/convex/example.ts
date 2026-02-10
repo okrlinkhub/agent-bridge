@@ -35,6 +35,7 @@ const EXPOSED_FUNCTIONS = [
 export const createAgent = mutation({
   args: {
     name: v.string(),
+    appKey: v.optional(v.string()),
     apiKey: v.string(),
     rateLimit: v.optional(v.number()),
   },
@@ -44,6 +45,7 @@ export const createAgent = mutation({
   handler: async (ctx, args) => {
     return await ctx.runMutation(components.agentBridge.agents.createAgent, {
       name: args.name,
+      appKey: args.appKey,
       apiKey: args.apiKey,
       rateLimit: args.rateLimit,
     });
@@ -131,6 +133,7 @@ export const agents = query({
     v.object({
       _id: v.string(),
       name: v.string(),
+      appKey: v.optional(v.string()),
       enabled: v.boolean(),
       rateLimit: v.number(),
       lastUsed: v.optional(v.number()),
@@ -142,6 +145,7 @@ export const agents = query({
     return rows.map((row) => ({
       _id: row._id,
       name: row.name,
+      appKey: row.appKey,
       enabled: row.enabled,
       rateLimit: row.rateLimit,
       lastUsed: row.lastUsed,

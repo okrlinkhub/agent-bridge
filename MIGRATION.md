@@ -18,6 +18,12 @@ e introduce un flusso **config-first**:
 - permessi/override in batch via mutation del componente;
 - log in `agentLogs`.
 
+Per setup multi-app con un solo servizio OpenClaw, e disponibile anche auth service-to-bridge:
+
+- header `X-Agent-Service-Key` (secret condiviso, singolo);
+- header `X-Agent-App` (routing app);
+- risoluzione app -> agente nel bridge Convex.
+
 ## Mapping veloce vecchio -> nuovo
 
 | Legacy | Nuovo |
@@ -71,6 +77,9 @@ export default defineAgentBridgeConfig({
 Header:
 
 - `X-Agent-API-Key: <plaintext-api-key>`
+- oppure:
+  - `X-Agent-Service-Key: <shared-service-secret>`
+  - `X-Agent-App: <app-key>`
 
 Body:
 
@@ -100,12 +109,17 @@ Aggiorna la skill/automazione in modo che:
 6. tratti `403` come policy failure (non retry immediato);
 7. non provi a registrare funzioni runtime.
 
+Per architetture multi-app:
+
+8. preferisca `X-Agent-Service-Key + X-Agent-App` con controllo centralizzato nel bridge.
+
 ## Regole operative consigliate per l’agente
 
 - Validare prima che `functionKey` sia tra quelle esposte.
 - In caso di `404`, ricontrollare key e versione config.
 - In caso di `429`, applicare retry dopo `Retry-After`.
 - Non loggare mai la API key in chiaro.
+- Non loggare mai service key o API key in chiaro.
 
 ## API key lifecycle consigliato
 
@@ -113,6 +127,19 @@ Aggiorna la skill/automazione in modo che:
 - Storage lato bridge: hash SHA-256 (gia implementato).
 - Storage lato agente: secret store (non repository, non log).
 - Rotazione: periodica o immediata in caso di leak.
+
+## Setup consigliato OpenClaw + Railway (multi-app)
+
+Scenario: un solo servizio OpenClaw gestisce piu applicativi.
+
+1. Configura in Railway solo:
+   - `AGENT_BRIDGE_SERVICE_KEY=<secret-unico>`
+   - opzionale: genera il valore con `generateAgentBridgeServiceKey()`
+2. Registra un agente per applicativo nel bridge, assegnando `appKey` univoco.
+3. OpenClaw invia sempre:
+   - `X-Agent-Service-Key` (fisso)
+   - `X-Agent-App` (target applicativo)
+4. Mantieni `X-Agent-API-Key` solo per compatibilita con client legacy.
 
 ## Comando init
 

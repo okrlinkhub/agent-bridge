@@ -16,6 +16,7 @@ function App() {
 
   const [agentName, setAgentName] = useState("");
   const [agentApiKey, setAgentApiKey] = useState("");
+  const [serviceKey, setServiceKey] = useState("");
 
   return (
     <>
@@ -59,6 +60,18 @@ function App() {
           Generate API Key
         </button>
 
+        <h3 style={{ marginTop: "1.5rem" }}>Generate Service Key</h3>
+        <input
+          type="text"
+          value={serviceKey}
+          onChange={(event) => setServiceKey(event.target.value)}
+          placeholder="Service key"
+          style={{ marginRight: "0.5rem", padding: "0.5rem", width: "420px" }}
+        />
+        <button onClick={() => setServiceKey(adminClient.generateServiceKey())}>
+          Generate Service Key
+        </button>
+
         <h3 style={{ marginTop: "1.5rem" }}>Configured Functions</h3>
         <ul style={{ textAlign: "left", fontSize: "0.85rem" }}>
           {(configuredFunctions ?? []).map((fn) => (
@@ -73,7 +86,9 @@ function App() {
         <ul style={{ textAlign: "left", fontSize: "0.85rem" }}>
           {(agents ?? []).map((agent) => (
             <li key={agent._id}>
-              {agent.name} - {agent.enabled ? "enabled" : "disabled"} - limit{" "}
+              {agent.name}
+              {agent.appKey ? ` (${agent.appKey})` : ""} -{" "}
+              {agent.enabled ? "enabled" : "disabled"} - limit{" "}
               {agent.rateLimit}/h
             </li>
           ))}

@@ -49,6 +49,17 @@ registerAgentBridgeRoutes(http);
 export default http;
 ```
 
+Se vuoi usare il flusso multi-app gestito dal bridge, passa anche la service key:
+
+```ts
+registerRoutes(http, components.agentBridge, bridgeConfig, {
+  pathPrefix: "/agent",
+  serviceKey:
+    (globalThis as { process?: { env?: Record<string, string> } }).process?.env
+      ?.AGENT_BRIDGE_SERVICE_KEY,
+});
+```
+
 ### 4) Configura funzioni esposte in `agent-bridge.config.ts`
 
 ```ts
@@ -78,9 +89,13 @@ export default defineAgentBridgeConfig({
 
 ### `POST /agent/execute`
 
-Header richiesto:
+Header richiesti (una delle due modalita):
 
-- `X-Agent-API-Key: <api-key>`
+- Legacy:
+  - `X-Agent-API-Key: <api-key>`
+- Service-to-bridge (consigliato per OpenClaw multi-app):
+  - `X-Agent-Service-Key: <shared-service-secret>`
+  - `X-Agent-App: <app-key>` (es. `crm`, `billing`)
 
 Body richiesto:
 
@@ -98,6 +113,31 @@ Risposta:
 
 Codici principali: `401`, `403`, `404`, `429`, `500`.
 
+## Setup OpenClaw multi-app (semplice su Railway)
+
+Per un solo servizio OpenClaw che gestisce piu applicativi:
+
+1. In Railway imposta solo:
+   - `AGENT_BRIDGE_SERVICE_KEY=<secret-unico>`
+2. In Convex registra un agente per app con `appKey` univoco:
+   - `crm`, `billing`, `warehouse`, ecc.
+3. OpenClaw invia per ogni chiamata:
+   - `X-Agent-Service-Key` (sempre uguale)
+   - `X-Agent-App` (varia per app target)
+
+Puoi generare una service key con l'helper del package:
+
+```ts
+import { generateAgentBridgeServiceKey } from "@okrlinkhub/agent-bridge";
+
+const serviceKey = generateAgentBridgeServiceKey(); // es: abs_live_<random>
+```
+
+Vantaggi:
+- controllo e debugging centralizzati nel bridge Convex;
+- nessun invio multiplo di API key nelle request;
+- rotazione e policy per app gestite nel bridge.
+
 ## Gestione agenti e permessi
 
 Mutation/query del componente disponibili in `components.agentBridge`:
@@ -106,6 +146,7 @@ Mutation/query del componente disponibili in `components.agentBridge`:
 - `agents.updateAgent`
 - `agents.rotateApiKey`
 - `agents.listAgents`
+- `gateway.authorizeByAppKey`
 - `permissions.setAgentPermissions` (batch)
 - `permissions.listAgentPermissions`
 - `permissions.setFunctionOverrides` (batch)
@@ -140,7 +181,7 @@ Breaking changes principali:
 Nuovo flusso:
 
 1. config funzioni in `agent-bridge.config.ts`;
-2. auth via `X-Agent-API-Key`;
+2. auth via `X-Agent-API-Key` (legacy) oppure `X-Agent-Service-Key + X-Agent-App` (multi-app);
 3. policy in batch via mutation del componente;
 4. log centralizzato in `agentLogs`.
 

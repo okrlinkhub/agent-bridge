@@ -4,6 +4,7 @@ import { v } from "convex/values";
 export default defineSchema({
   agents: defineTable({
     name: v.string(),
+    appKey: v.optional(v.string()),
     apiKeyHash: v.string(),
     enabled: v.boolean(),
     rateLimit: v.number(),
@@ -11,6 +12,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_apiKeyHash", ["apiKeyHash"])
+    .index("by_appKey", ["appKey"])
     .index("by_enabled", ["enabled"]),
 
   agentPermissions: defineTable({

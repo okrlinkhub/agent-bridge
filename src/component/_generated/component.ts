@@ -27,7 +27,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       createAgent: FunctionReference<
         "mutation",
         "internal",
-        { apiKey: string; enabled?: boolean; name: string; rateLimit?: number },
+        {
+          apiKey: string;
+          appKey?: string;
+          enabled?: boolean;
+          name: string;
+          rateLimit?: number;
+        },
         { agentId: string },
         Name
       >;
@@ -37,6 +43,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         {},
         Array<{
           _id: string;
+          appKey?: string;
           createdAt: number;
           enabled: boolean;
           lastUsed?: number;
@@ -57,6 +64,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         {
           agentId: string;
+          appKey?: string;
           enabled?: boolean;
           name?: string;
           rateLimit?: number;
@@ -66,6 +74,20 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       >;
     };
     gateway: {
+      authorizeByAppKey: FunctionReference<
+        "mutation",
+        "internal",
+        { appKey: string; estimatedCost?: number; functionKey: string },
+        | { agentId: string; authorized: true }
+        | {
+            agentId?: string;
+            authorized: false;
+            error: string;
+            retryAfterSeconds?: number;
+            statusCode: number;
+          },
+        Name
+      >;
       authorizeRequest: FunctionReference<
         "mutation",
         "internal",
