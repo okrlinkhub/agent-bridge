@@ -1,9 +1,9 @@
 import { v } from "convex/values";
-import { mutation, query, internalQuery } from "./_generated/server.js";
+import { mutation, query } from "./_generated/server.js";
+import { patternMatchesAvailableFunctions } from "./agentBridgeUtils.js";
 
-// --- Permission result type ---
-
-const permissionResultValidator = v.object({
+const permissionRuleValidator = v.object({
+  pattern: v.string(),
   permission: v.union(
     v.literal("allow"),
     v.literal("deny"),
@@ -12,180 +12,57 @@ const permissionResultValidator = v.object({
   rateLimitConfig: v.optional(
     v.object({
       requestsPerHour: v.number(),
-      tokenBudget: v.number(),
+      tokenBudget: v.optional(v.number()),
     }),
   ),
-  matchedPattern: v.optional(v.string()),
 });
 
-// --- Pattern matching utilities ---
-
-/**
- * Calculate specificity score for a pattern.
- * More specific patterns (longer fixed prefix before the first wildcard)
- * get higher scores.
- */
-function patternSpecificity(pattern: string): number {
-  const wildcardIndex = pattern.indexOf("*");
-  if (wildcardIndex === -1) return pattern.length;
-  return wildcardIndex;
-}
-
-/**
- * Check if a function name matches a permission pattern.
- * Supports "*" as a wildcard that matches any characters.
- * Examples: "okr:*" matches "okr:getObjectives", "*" matches anything.
- */
-function matchesPattern(functionName: string, pattern: string): boolean {
-  if (pattern === "*") return true;
-  // Escape regex special chars except *, then replace * with .*
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
-  const regexStr = "^" + escaped.replace(/\*/g, ".*") + "$";
-  const regex = new RegExp(regexStr);
-  return regex.test(functionName);
-}
-
-// --- Public functions ---
-
-/**
- * Set a permission for an agent on a specific app.
- * If a permission with the same agentId + appName + functionPattern exists, it is updated.
- */
-export const setPermission = mutation({
+export const setAgentPermissions = mutation({
   args: {
-    agentId: v.string(),
-    appName: v.string(),
-    functionPattern: v.string(),
-    permission: v.union(
-      v.literal("allow"),
-      v.literal("deny"),
-      v.literal("rate_limited"),
-    ),
-    rateLimitConfig: v.optional(
-      v.object({
-        requestsPerHour: v.number(),
-        tokenBudget: v.number(),
-      }),
-    ),
-    createdBy: v.string(),
+    agentId: v.id("agents"),
+    rules: v.array(permissionRuleValidator),
+    availableFunctionKeys: v.array(v.string()),
   },
-  returns: v.string(),
+  returns: v.number(),
   handler: async (ctx, args) => {
-    // Check for existing permission with same pattern
-    const existing = await ctx.db
-      .query("functionPermissions")
-      .withIndex("by_agent_and_app", (q) =>
-        q.eq("agentId", args.agentId).eq("appName", args.appName),
-      )
-      .collect();
-
-    const match = existing.find(
-      (p) => p.functionPattern === args.functionPattern,
-    );
-
-    if (match) {
-      await ctx.db.patch(match._id, {
-        permission: args.permission,
-        rateLimitConfig: args.rateLimitConfig,
-        createdBy: args.createdBy,
-        createdAt: Date.now(),
-      });
-      return match._id;
-    }
-
-    const id = await ctx.db.insert("functionPermissions", {
-      agentId: args.agentId,
-      appName: args.appName,
-      functionPattern: args.functionPattern,
-      permission: args.permission,
-      rateLimitConfig: args.rateLimitConfig,
-      createdAt: Date.now(),
-      createdBy: args.createdBy,
-    });
-    return id;
-  },
-});
-
-/**
- * Remove a specific permission.
- */
-export const removePermission = mutation({
-  args: {
-    agentId: v.string(),
-    appName: v.string(),
-    functionPattern: v.string(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const perms = await ctx.db
-      .query("functionPermissions")
-      .withIndex("by_agent_and_app", (q) =>
-        q.eq("agentId", args.agentId).eq("appName", args.appName),
-      )
-      .collect();
-
-    const match = perms.find(
-      (p) => p.functionPattern === args.functionPattern,
-    );
-
-    if (!match) return false;
-
-    await ctx.db.delete(match._id);
-    return true;
-  },
-});
-
-/**
- * Check permission for a specific function call.
- * Applies pattern matching with specificity ordering (most specific pattern wins).
- * Default: deny if no matching pattern is found.
- */
-export const checkPermission = query({
-  args: {
-    agentId: v.string(),
-    appName: v.string(),
-    functionName: v.string(),
-  },
-  returns: permissionResultValidator,
-  handler: async (ctx, args) => {
-    const permissions = await ctx.db
-      .query("functionPermissions")
-      .withIndex("by_agent_and_app", (q) =>
-        q.eq("agentId", args.agentId).eq("appName", args.appName),
-      )
-      .collect();
-
-    // Find all matching patterns and sort by specificity (most specific first)
-    const matches = permissions
-      .filter((p) => matchesPattern(args.functionName, p.functionPattern))
-      .sort(
-        (a, b) =>
-          patternSpecificity(b.functionPattern) -
-          patternSpecificity(a.functionPattern),
+    for (const rule of args.rules) {
+      const isValid = patternMatchesAvailableFunctions(
+        rule.pattern,
+        args.availableFunctionKeys,
       );
-
-    if (matches.length === 0) {
-      // Default: deny
-      return { permission: "deny" as const };
+      if (!isValid) {
+        throw new Error(
+          `Pattern "${rule.pattern}" does not match any configured function`,
+        );
+      }
     }
 
-    // Most specific pattern wins
-    const best = matches[0];
-    return {
-      permission: best.permission,
-      rateLimitConfig: best.rateLimitConfig,
-      matchedPattern: best.functionPattern,
-    };
+    const existingRules = await ctx.db
+      .query("agentPermissions")
+      .withIndex("by_agentId", (q) => q.eq("agentId", args.agentId))
+      .collect();
+
+    for (const existingRule of existingRules) {
+      await ctx.db.delete(existingRule._id);
+    }
+
+    for (const rule of args.rules) {
+      await ctx.db.insert("agentPermissions", {
+        agentId: args.agentId,
+        functionPattern: rule.pattern,
+        permission: rule.permission,
+        rateLimitConfig: rule.rateLimitConfig,
+        updatedAt: Date.now(),
+      });
+    }
+
+    return args.rules.length;
   },
 });
 
-/**
- * List all permissions for an agent on a specific app.
- */
-export const listPermissions = query({
+export const listAgentPermissions = query({
   args: {
-    agentId: v.string(),
-    appName: v.string(),
+    agentId: v.id("agents"),
   },
   returns: v.array(
     v.object({
@@ -198,124 +75,77 @@ export const listPermissions = query({
       rateLimitConfig: v.optional(
         v.object({
           requestsPerHour: v.number(),
-          tokenBudget: v.number(),
+          tokenBudget: v.optional(v.number()),
         }),
       ),
-      createdAt: v.number(),
-      createdBy: v.string(),
+      updatedAt: v.number(),
     }),
   ),
   handler: async (ctx, args) => {
-    const perms = await ctx.db
-      .query("functionPermissions")
-      .withIndex("by_agent_and_app", (q) =>
-        q.eq("agentId", args.agentId).eq("appName", args.appName),
-      )
+    const rules = await ctx.db
+      .query("agentPermissions")
+      .withIndex("by_agentId", (q) => q.eq("agentId", args.agentId))
       .collect();
 
-    return perms.map((p) => ({
-      functionPattern: p.functionPattern,
-      permission: p.permission,
-      rateLimitConfig: p.rateLimitConfig,
-      createdAt: p.createdAt,
-      createdBy: p.createdBy,
+    return rules.map((rule) => ({
+      functionPattern: rule.functionPattern,
+      permission: rule.permission,
+      rateLimitConfig: rule.rateLimitConfig,
+      updatedAt: rule.updatedAt,
     }));
   },
 });
 
-/**
- * Remove all permissions for a specific agent on a specific app.
- */
-export const clearPermissions = mutation({
+export const setFunctionOverrides = mutation({
   args: {
-    agentId: v.string(),
-    appName: v.string(),
+    overrides: v.array(
+      v.object({
+        key: v.string(),
+        enabled: v.boolean(),
+        globalRateLimit: v.optional(v.number()),
+      }),
+    ),
+    availableFunctionKeys: v.array(v.string()),
   },
   returns: v.number(),
   handler: async (ctx, args) => {
-    const perms = await ctx.db
-      .query("functionPermissions")
-      .withIndex("by_agent_and_app", (q) =>
-        q.eq("agentId", args.agentId).eq("appName", args.appName),
-      )
-      .collect();
+    for (const override of args.overrides) {
+      if (!args.availableFunctionKeys.includes(override.key)) {
+        throw new Error(`Function "${override.key}" is not exposed in config`);
+      }
 
-    for (const perm of perms) {
-      await ctx.db.delete(perm._id);
+      const existing = await ctx.db
+        .query("agentFunctions")
+        .withIndex("by_key", (q) => q.eq("key", override.key))
+        .unique();
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          enabled: override.enabled,
+          globalRateLimit: override.globalRateLimit,
+        });
+      } else {
+        await ctx.db.insert("agentFunctions", {
+          key: override.key,
+          enabled: override.enabled,
+          globalRateLimit: override.globalRateLimit,
+        });
+      }
     }
 
-    return perms.length;
+    return args.overrides.length;
   },
 });
 
-/**
- * Debug helper: show permission matching for a specific function call.
- */
-export const debugMatchPermission = query({
-  args: {
-    agentId: v.string(),
-    appName: v.string(),
-    functionName: v.string(),
-  },
-  returns: v.object({
-    functionName: v.string(),
-    permissions: v.array(
-      v.object({
-        functionPattern: v.string(),
-        permission: v.union(
-          v.literal("allow"),
-          v.literal("deny"),
-          v.literal("rate_limited"),
-        ),
-        specificity: v.number(),
-      }),
-    ),
-    matches: v.array(
-      v.object({
-        functionPattern: v.string(),
-        permission: v.union(
-          v.literal("allow"),
-          v.literal("deny"),
-          v.literal("rate_limited"),
-        ),
-        specificity: v.number(),
-      }),
-    ),
-    bestMatch: v.optional(
-      v.object({
-        functionPattern: v.string(),
-        permission: v.union(
-          v.literal("allow"),
-          v.literal("deny"),
-          v.literal("rate_limited"),
-        ),
-        specificity: v.number(),
-      }),
-    ),
-  }),
-  handler: async (ctx, args) => {
-    const permissions = await ctx.db
-      .query("functionPermissions")
-      .withIndex("by_agent_and_app", (q) =>
-        q.eq("agentId", args.agentId).eq("appName", args.appName),
-      )
-      .collect();
-
-    const withSpecificity = permissions.map((p) => ({
-      functionPattern: p.functionPattern,
-      permission: p.permission,
-      specificity: patternSpecificity(p.functionPattern),
-    }));
-
-    const matches = withSpecificity
-      .filter((p) => matchesPattern(args.functionName, p.functionPattern))
-      .sort((a, b) => b.specificity - a.specificity);
-
-    return {
-      functionName: args.functionName,
-      permissions: withSpecificity,
-      matches,
-      bestMatch: matches[0],
-    };
+export const listFunctionOverrides = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      key: v.string(),
+      enabled: v.boolean(),
+      globalRateLimit: v.optional(v.number()),
+    }),
+  ),
+  handler: async (ctx) => {
+    return await ctx.db.query("agentFunctions").collect();
   },
 });

@@ -1,161 +1,189 @@
-import { mutation, query, internalMutation } from "./_generated/server.js";
+import { mutation, query } from "./_generated/server.js";
 import { components } from "./_generated/api.js";
-import { internal, api } from "./_generated/api.js";
-import { AgentBridge } from "@okrlinkhub/agent-bridge";
 import { v } from "convex/values";
-import { createFunctionHandle } from "convex/server";
 
-// --- Initialize the AgentBridge client ---
+const EXPOSED_FUNCTION_KEYS = [
+  "demo.listItems",
+  "demo.getItem",
+  "demo.createItem",
+] as const;
 
-const bridge = new AgentBridge(components.agentBridge, {
-  appName: "demo",
-  defaultPermissions: [
-    { pattern: "demo:list*", permission: "allow" },
-    { pattern: "demo:get*", permission: "allow" },
-    { pattern: "demo:create*", permission: "rate_limited", rateLimitConfig: { requestsPerHour: 50, tokenBudget: 50000 } },
-    { pattern: "*", permission: "deny" },
-  ],
-});
-
-// --- Setup: Configure component and register functions ---
-
-/**
- * One-time setup: configures the component and registers functions
- * that agents are allowed to call.
- * Run this once after deploying: `npx convex run example:setup`
- */
-export const setup = mutation({
-  args: {},
-  returns: v.null(),
-  handler: async (ctx) => {
-    // 1. Configure the component with app name and default permissions
-    await bridge.configure(ctx);
-
-    // 2. Register functions that agents can call
-    const listHandle = await createFunctionHandle(api.example.listItems);
-    const getHandle = await createFunctionHandle(api.example.getItem);
-    const createHandle = await createFunctionHandle(api.example.createItem);
-
-    await bridge.registerFunctions(ctx, [
-      {
-        name: "demo:listItems",
-        handle: listHandle,
-        type: "query",
-        description: "List all active items",
-      },
-      {
-        name: "demo:getItem",
-        handle: getHandle,
-        type: "query",
-        description: "Get a specific item by ID",
-      },
-      {
-        name: "demo:createItem",
-        handle: createHandle,
-        type: "mutation",
-        description: "Create a new item",
-      },
-    ]);
-
-    return null;
+const EXPOSED_FUNCTIONS = [
+  {
+    functionKey: "demo.listItems",
+    type: "query" as const,
+    description: "Lista tutti gli item attivi",
+    riskLevel: "low" as const,
+    category: "demo",
   },
-});
+  {
+    functionKey: "demo.getItem",
+    type: "query" as const,
+    description: "Restituisce un item per ID",
+    riskLevel: "low" as const,
+    category: "demo",
+  },
+  {
+    functionKey: "demo.createItem",
+    type: "mutation" as const,
+    description: "Crea un nuovo item",
+    riskLevel: "medium" as const,
+    category: "demo",
+  },
+] as const;
 
-// --- Admin operations ---
-
-/**
- * Generate a provisioning token for an employee.
- * Admin-only operation.
- */
-export const generateToken = mutation({
+export const createAgent = mutation({
   args: {
-    employeeEmail: v.string(),
-    department: v.string(),
-    maxApps: v.optional(v.number()),
+    name: v.string(),
+    apiKey: v.string(),
+    rateLimit: v.optional(v.number()),
   },
   returns: v.object({
-    token: v.string(),
-    expiresAt: v.number(),
+    agentId: v.string(),
   }),
   handler: async (ctx, args) => {
-    // In production, authenticate the admin here via ctx.auth
-    return await bridge.generateProvisioningToken(ctx, {
-      employeeEmail: args.employeeEmail,
-      department: args.department,
-      maxApps: args.maxApps,
-      createdBy: "admin@example.com",
+    return await ctx.runMutation(components.agentBridge.agents.createAgent, {
+      name: args.name,
+      apiKey: args.apiKey,
+      rateLimit: args.rateLimit,
     });
   },
 });
 
-/**
- * List all registered agents.
- */
-export const agents = query({
-  args: {},
-  returns: v.array(
-    v.object({
-      agentId: v.string(),
-      employeeEmail: v.string(),
-      department: v.string(),
-      firstRegisteredAt: v.number(),
-      lastSeenAt: v.number(),
-      isActive: v.boolean(),
-      revokedAt: v.optional(v.number()),
-      revokedBy: v.optional(v.string()),
-    }),
-  ),
-  handler: async (ctx) => {
-    return await bridge.listAgents(ctx);
+export const setAgentPermissions = mutation({
+  args: {
+    agentId: v.string(),
+    rules: v.array(
+      v.object({
+        pattern: v.string(),
+        permission: v.union(
+          v.literal("allow"),
+          v.literal("deny"),
+          v.literal("rate_limited"),
+        ),
+        rateLimitConfig: v.optional(
+          v.object({
+            requestsPerHour: v.number(),
+            tokenBudget: v.optional(v.number()),
+          }),
+        ),
+      }),
+    ),
+  },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    return await ctx.runMutation(
+      components.agentBridge.permissions.setAgentPermissions,
+      {
+        agentId: args.agentId as never,
+        rules: args.rules,
+        availableFunctionKeys: [...EXPOSED_FUNCTION_KEYS],
+      },
+    );
   },
 });
 
-/**
- * List all registered functions available to agents.
- */
-export const registeredFunctions = query({
+export const setFunctionOverrides = mutation({
+  args: {
+    overrides: v.array(
+      v.object({
+        key: v.string(),
+        enabled: v.boolean(),
+        globalRateLimit: v.optional(v.number()),
+      }),
+    ),
+  },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    return await ctx.runMutation(
+      components.agentBridge.permissions.setFunctionOverrides,
+      {
+        overrides: args.overrides,
+        availableFunctionKeys: [...EXPOSED_FUNCTION_KEYS],
+      },
+    );
+  },
+});
+
+export const configuredFunctions = query({
   args: {},
   returns: v.array(
     v.object({
-      functionName: v.string(),
-      functionType: v.union(
+      functionKey: v.string(),
+      type: v.union(
         v.literal("query"),
         v.literal("mutation"),
         v.literal("action"),
       ),
       description: v.optional(v.string()),
-      registeredAt: v.number(),
+      riskLevel: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"))),
+      category: v.optional(v.string()),
     }),
   ),
-  handler: async (ctx) => {
-    return await bridge.listFunctions(ctx);
+  handler: async () => {
+    return [...EXPOSED_FUNCTIONS];
   },
 });
 
-/**
- * View access logs.
- */
+export const agents = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.string(),
+      name: v.string(),
+      enabled: v.boolean(),
+      rateLimit: v.number(),
+      lastUsed: v.optional(v.number()),
+      createdAt: v.number(),
+    }),
+  ),
+  handler: async (ctx) => {
+    const rows = await ctx.runQuery(components.agentBridge.agents.listAgents, {});
+    return rows.map((row) => ({
+      _id: row._id,
+      name: row.name,
+      enabled: row.enabled,
+      rateLimit: row.rateLimit,
+      lastUsed: row.lastUsed,
+      createdAt: row.createdAt,
+    }));
+  },
+});
+
 export const accessLogs = query({
   args: {
     agentId: v.optional(v.string()),
+    functionKey: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
   returns: v.array(
     v.object({
+      _id: v.string(),
       timestamp: v.number(),
       agentId: v.string(),
-      appName: v.string(),
-      functionCalled: v.string(),
-      permission: v.string(),
-      errorMessage: v.optional(v.string()),
-      durationMs: v.optional(v.number()),
+      functionKey: v.string(),
+      args: v.any(),
+      result: v.optional(v.any()),
+      error: v.optional(v.string()),
+      duration: v.number(),
     }),
   ),
   handler: async (ctx, args) => {
-    return await bridge.queryAccessLog(ctx, {
-      agentId: args.agentId,
+    const logs = await ctx.runQuery(components.agentBridge.gateway.queryAccessLog, {
+      agentId: args.agentId as never,
+      functionKey: args.functionKey,
       limit: args.limit,
     });
+    return logs.map((log) => ({
+      _id: log._id,
+      timestamp: log.timestamp,
+      agentId: log.agentId,
+      functionKey: log.functionKey,
+      args: log.args,
+      result: log.result,
+      error: log.error,
+      duration: log.duration,
+    }));
   },
 });
 

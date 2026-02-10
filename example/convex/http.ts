@@ -1,16 +1,12 @@
 import { httpRouter } from "convex/server";
 import { registerRoutes } from "@okrlinkhub/agent-bridge";
 import { components } from "./_generated/api";
+import bridgeConfig from "../agent-bridge.config";
 
 const http = httpRouter();
 
-// Register agent bridge HTTP routes.
-// This exposes:
-//   POST /agent-bridge/execute    -- Gateway for agent function calls
-//   POST /agent-bridge/provision  -- Agent self-provisioning
-//   GET  /agent-bridge/health     -- Health check
-registerRoutes(http, components.agentBridge, {
-  appName: "demo",
+registerRoutes(http, components.agentBridge, bridgeConfig, {
+  pathPrefix: "/agent",
 });
 
 export default http;
