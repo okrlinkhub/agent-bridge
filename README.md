@@ -93,6 +93,15 @@ Header richiesti (strict-only):
 - `X-Agent-Service-Key: <service-key>`
 - `X-Agent-App: <app-key>` (es. `crm`, `billing`)
 
+Header opzionale per contesto utente Convex:
+
+- `Authorization: Bearer <user-jwt>`
+
+Quando usarlo:
+
+- Se la funzione target usa `ctx.auth.getUserIdentity()`, invia sempre `Authorization`.
+- Se la funzione e service-only, `Authorization` puo essere omesso.
+
 Body richiesto:
 
 ```json
@@ -108,6 +117,57 @@ Risposta:
 - errore: `{ "success": false, "error": "..." }`
 
 Codici principali: `401`, `403`, `404`, `429`, `500`.
+
+## User context cross-app (best practice)
+
+Per usare Agent Bridge in app Convex con stack auth diversi, mantieni questo contratto:
+
+1. **Service auth** (sempre): `X-Agent-Service-Id`, `X-Agent-Service-Key`, `X-Agent-App`
+2. **User auth** (quando serve): `Authorization: Bearer <user-jwt>`
+
+Token source comuni:
+
+- `nextauth_convex`: leggi `session.convexToken` lato server
+- `auth0`: usa access token Auth0 valido per Convex
+- `custom_oidc`: usa token OIDC del provider dell'app
+
+Il package include helper riusabili:
+
+```ts
+import {
+  buildAgentBridgeStrictHeaders,
+  createAuth0TokenAdapter,
+  createCustomOidcTokenAdapter,
+  createNextAuthConvexTokenAdapter,
+  resolveUserToken,
+  validateJwtClaims,
+} from "@okrlinkhub/agent-bridge";
+```
+
+Esempio rapido:
+
+```ts
+const tokenAdapter = createNextAuthConvexTokenAdapter({
+  getSession: async () => session,
+});
+
+const userToken = await resolveUserToken(tokenAdapter);
+const validation = userToken
+  ? validateJwtClaims(userToken, { expectedAudience: "convex" })
+  : { valid: false };
+
+const headers = buildAgentBridgeStrictHeaders({
+  serviceId: process.env.OPENCLAW_SERVICE_ID!,
+  serviceKey: process.env.OPENCLAW_SERVICE_KEY!,
+  appKey: "crm",
+  userToken: validation.valid ? userToken : null,
+});
+```
+
+Note:
+
+- `validateJwtClaims` controlla solo claim (`exp`, `iss`, `aud`) e non sostituisce la validazione crittografica di Convex.
+- Non loggare mai token utente o service key.
 
 ## Setup OpenClaw multi-app (semplice su Railway)
 

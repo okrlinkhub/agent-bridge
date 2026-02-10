@@ -6,6 +6,24 @@ import type {
   HttpRouter,
 } from "convex/server";
 import type { ComponentApi } from "../component/_generated/component.js";
+export {
+  buildAgentBridgeStrictHeaders,
+  createAuth0TokenAdapter,
+  createCustomOidcTokenAdapter,
+  createNextAuthConvexTokenAdapter,
+  decodeJwtClaims,
+  resolveUserToken,
+  validateJwtClaims,
+} from "./userAuth.js";
+export type {
+  AgentBridgeStrictHeadersInput,
+  JwtClaimValidationOptions,
+  JwtClaimValidationResult,
+  JwtClaims,
+  NextAuthSessionLike,
+  TokenSource,
+  TokenSourceAdapter,
+} from "./userAuth.js";
 
 export type AgentBridgeFunctionType = "query" | "mutation" | "action";
 

@@ -5,6 +5,8 @@ Always send headers:
 - X-Agent-Service-Id: {OPENCLAW_SERVICE_ID}
 - X-Agent-Service-Key: {OPENCLAW_SERVICE_KEY}
 - X-Agent-App: {resolved_app_key}
+Add Authorization only when function needs user context:
+- Authorization: Bearer {user_jwt}
 Never send X-Agent-API-Key.
 Never log or print secrets (service keys or API keys).
 
@@ -28,3 +30,7 @@ Esempio AGENT_BRIDGE_ROUTE_MAP_JSON:
     "warehouse.": "warehouse"
   }
 }
+
+Regola operativa cross-app:
+- service-only function: usa solo header strict
+- user-scoped function (`ctx.auth.getUserIdentity()`): inoltra anche `Authorization`

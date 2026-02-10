@@ -15,6 +15,10 @@ Header obbligatori:
 - `X-Agent-Service-Key: <service-key>`
 - `X-Agent-App: <app-key>`
 
+Header opzionale (richiesto per funzioni user-scoped):
+
+- `Authorization: Bearer <user-jwt>`
+
 Header non supportati:
 
 - `X-Agent-API-Key`
@@ -55,6 +59,15 @@ Esempio `AGENT_BRIDGE_ROUTE_MAP_JSON`:
 
 `estimatedCost` e opzionale.
 
+## Regola universale service + user auth
+
+Usa sempre questa matrice:
+
+- Funzioni **service-only**: header strict sufficienti
+- Funzioni che leggono `ctx.auth.getUserIdentity()`: header strict + `Authorization`
+
+Senza `Authorization`, le funzioni user-scoped possono restituire empty/unauthorized.
+
 ## Snippet TypeScript pronto
 
 ```ts
@@ -93,6 +106,7 @@ export async function callAgentBridge(input: {
   functionKey: string;
   args?: Record<string, unknown>;
   estimatedCost?: number;
+  userToken?: string | null;
 }) {
   const baseUrl = process.env.AGENT_BRIDGE_BASE_URL;
   const serviceId = process.env.OPENCLAW_SERVICE_ID;
@@ -114,6 +128,9 @@ export async function callAgentBridge(input: {
       "X-Agent-Service-Id": serviceId,
       "X-Agent-Service-Key": serviceKey,
       "X-Agent-App": appKey,
+      ...(input.userToken
+        ? { Authorization: `Bearer ${input.userToken}` }
+        : {}),
     },
     body: JSON.stringify({
       functionKey: input.functionKey,
@@ -136,6 +153,40 @@ export async function callAgentBridge(input: {
 }
 ```
 
+## Token source adapters (cross-app)
+
+Per rendere il flusso riusabile tra stack diversi:
+
+```ts
+import {
+  createNextAuthConvexTokenAdapter,
+  createAuth0TokenAdapter,
+  createCustomOidcTokenAdapter,
+  resolveUserToken,
+  validateJwtClaims,
+} from "@okrlinkhub/agent-bridge";
+
+// NextAuth + Convex JWT bridge
+const nextAuthAdapter = createNextAuthConvexTokenAdapter({
+  getSession: async () => session,
+});
+
+// Auth0
+const auth0Adapter = createAuth0TokenAdapter({
+  getAccessToken: async () => getAccessTokenSilently(),
+});
+
+// Custom OIDC
+const customAdapter = createCustomOidcTokenAdapter({
+  getToken: async () => myOidcClient.getToken(),
+});
+
+const userToken = await resolveUserToken(nextAuthAdapter);
+const validation = userToken
+  ? validateJwtClaims(userToken, { expectedAudience: "convex" })
+  : { valid: false };
+```
+
 ## Error handling minimo consigliato
 
 - `400`: header mancanti o payload invalido
@@ -148,7 +199,9 @@ export async function callAgentBridge(input: {
 ## Sicurezza operativa
 
 - Non loggare mai `OPENCLAW_SERVICE_KEY`.
+- Non loggare mai bearer token utente.
 - Non inviare mai `X-Agent-API-Key`.
+- Eseguire validazioni minime claim (`exp`, `iss`, `aud`) prima del forward.
 - In caso di rotazione, aggiornare in modo atomico:
   1) configurazione bridge (mappa service keys),
   2) env della specifica istanza OpenClaw.
