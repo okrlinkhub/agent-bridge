@@ -38,6 +38,7 @@ export interface AgentBridgeFunctionMetadata {
   description?: string;
   riskLevel?: "low" | "medium" | "high";
   category?: string;
+  authMode?: "service" | "user";
 }
 
 export interface AgentBridgeConfig {
@@ -156,6 +157,8 @@ type RegisterRoutesOptions = {
   pathPrefix?: string;
   serviceKeys?: Record<string, string>;
   serviceKeysEnvVar?: string;
+  auditHashSaltEnvVar?: string;
+  linkingMode?: "component_api_only";
 };
 
 export function registerRoutes(
@@ -165,10 +168,17 @@ export function registerRoutes(
   options?: RegisterRoutesOptions,
 ) {
   const prefix = options?.pathPrefix ?? "/agent";
+  const linkingMode = options?.linkingMode ?? "component_api_only";
+  if (linkingMode !== "component_api_only") {
+    throw new Error(`Unsupported linkingMode: ${linkingMode}`);
+  }
   const configuredServiceKeys = resolveConfiguredServiceKeys({
     serviceKeys: options?.serviceKeys,
     serviceKeysEnvVar: options?.serviceKeysEnvVar ?? "AGENT_BRIDGE_SERVICE_KEYS_JSON",
   });
+  const auditHashSalt =
+    readRuntimeEnv(options?.auditHashSaltEnvVar ?? "AGENT_BRIDGE_AUDIT_HASH_SALT") ??
+    "";
   const normalizedConfig = normalizeAgentBridgeConfig(bridgeConfig);
   const availableFunctionKeys = Object.keys(normalizedConfig.functions);
 
@@ -234,6 +244,10 @@ export function registerRoutes(
       }
 
       const startTime = Date.now();
+      const linkAuditContext = await extractLinkAuditContextFromRequest({
+        request,
+        auditHashSalt,
+      });
       try {
         const args = body.args ?? {};
         let result: unknown;
@@ -262,6 +276,7 @@ export function registerRoutes(
           result,
           duration: Date.now() - startTime,
           timestamp: Date.now(),
+          ...linkAuditContext,
         });
 
         return jsonResponse({ success: true, result }, 200);
@@ -277,8 +292,10 @@ export function registerRoutes(
           functionKey,
           args: body.args ?? {},
           error: errorMessage,
+          errorCode: "bridge_execution_error",
           duration: Date.now() - startTime,
           timestamp: Date.now(),
+          ...linkAuditContext,
         });
 
         return jsonResponse({ success: false, error: errorMessage }, 500);
@@ -441,6 +458,58 @@ function readRuntimeEnv(name: string): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+async function extractLinkAuditContextFromRequest(args: {
+  request: Request;
+  auditHashSalt: string;
+}): Promise<{
+  linkedProvider?: string;
+  providerUserIdHash?: string;
+  appUserSubjectHash?: string;
+  linkStatus?: string;
+}> {
+  const linkedProvider =
+    args.request.headers.get("X-Agent-Link-Provider")?.trim().toLowerCase() || undefined;
+  const providerUserIdRaw =
+    args.request.headers.get("X-Agent-Link-Provider-User-Id")?.trim() || undefined;
+  const appUserSubjectRaw =
+    args.request.headers.get("X-Agent-Link-User-Subject")?.trim() || undefined;
+  const linkStatus = args.request.headers.get("X-Agent-Link-Status")?.trim() || undefined;
+  const providerUserIdHash = providerUserIdRaw
+    ? await hashAuditIdentifier(providerUserIdRaw, args.auditHashSalt)
+    : undefined;
+  const appUserSubjectHash = appUserSubjectRaw
+    ? await hashAuditIdentifier(appUserSubjectRaw, args.auditHashSalt)
+    : undefined;
+  const auditContext: {
+    linkedProvider?: string;
+    providerUserIdHash?: string;
+    appUserSubjectHash?: string;
+    linkStatus?: string;
+  } = {};
+  if (linkedProvider) {
+    auditContext.linkedProvider = linkedProvider;
+  }
+  if (providerUserIdHash) {
+    auditContext.providerUserIdHash = providerUserIdHash;
+  }
+  if (appUserSubjectHash) {
+    auditContext.appUserSubjectHash = appUserSubjectHash;
+  }
+  if (linkStatus) {
+    auditContext.linkStatus = linkStatus;
+  }
+  return auditContext;
+}
+
+async function hashAuditIdentifier(value: string, salt: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const input = encoder.encode(`${salt}:${value}`);
+  const digest = await crypto.subtle.digest("SHA-256", input);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function resolveConfiguredServiceKeys(args: {

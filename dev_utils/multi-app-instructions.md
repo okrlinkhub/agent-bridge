@@ -17,6 +17,7 @@ Env consigliate su Railway (OpenClaw):
 - OPENCLAW_SERVICE_KEY=abs_live_...
 - AGENT_BRIDGE_DEFAULT_APP_KEY=crm (opzionale)
 - AGENT_BRIDGE_ROUTE_MAP_JSON=<json sotto>
+- AGENT_BRIDGE_AUDIT_HASH_SALT=<random-long-secret> (raccomandata lato Convex)
 
 Esempio AGENT_BRIDGE_ROUTE_MAP_JSON:
 {
@@ -34,3 +35,7 @@ Esempio AGENT_BRIDGE_ROUTE_MAP_JSON:
 Regola operativa cross-app:
 - service-only function: usa solo header strict
 - user-scoped function (`ctx.auth.getUserIdentity()`): inoltra anche `Authorization`
+
+Decisione linking:
+- Il bridge NON espone endpoint HTTP per creare/risolvere link utente.
+- Usa sempre le mutation/query del componente (`components.agentBridge.linking.*`) da BFF/app server-side.

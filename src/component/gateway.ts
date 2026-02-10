@@ -105,7 +105,13 @@ export const logAccess = mutation({
     args: v.any(),
     result: v.optional(v.any()),
     error: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
     duration: v.number(),
+    linkedProvider: v.optional(v.string()),
+    providerUserIdHash: v.optional(v.string()),
+    appUserSubjectHash: v.optional(v.string()),
+    linkStatus: v.optional(v.string()),
+    rateLimited: v.optional(v.boolean()),
     timestamp: v.number(),
   },
   returns: v.null(),
@@ -118,7 +124,13 @@ export const logAccess = mutation({
       args: args.args,
       result: args.result,
       error: args.error,
+      errorCode: args.errorCode,
       duration: args.duration,
+      linkedProvider: args.linkedProvider,
+      providerUserIdHash: args.providerUserIdHash,
+      appUserSubjectHash: args.appUserSubjectHash,
+      linkStatus: args.linkStatus,
+      rateLimited: args.rateLimited,
     });
     return null;
   },
@@ -144,7 +156,13 @@ export const queryAccessLog = query({
       args: v.any(),
       result: v.optional(v.any()),
       error: v.optional(v.string()),
+      errorCode: v.optional(v.string()),
       duration: v.number(),
+      linkedProvider: v.optional(v.string()),
+      providerUserIdHash: v.optional(v.string()),
+      appUserSubjectHash: v.optional(v.string()),
+      linkStatus: v.optional(v.string()),
+      rateLimited: v.optional(v.boolean()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -173,7 +191,13 @@ export const queryAccessLog = query({
         args: l.args,
         result: l.result,
         error: l.error,
+        errorCode: l.errorCode,
         duration: l.duration,
+        linkedProvider: l.linkedProvider,
+        providerUserIdHash: l.providerUserIdHash,
+        appUserSubjectHash: l.appUserSubjectHash,
+        linkStatus: l.linkStatus,
+        rateLimited: l.rateLimited,
       }));
     }
 
@@ -196,7 +220,13 @@ export const queryAccessLog = query({
         args: l.args,
         result: l.result,
         error: l.error,
+        errorCode: l.errorCode,
         duration: l.duration,
+        linkedProvider: l.linkedProvider,
+        providerUserIdHash: l.providerUserIdHash,
+        appUserSubjectHash: l.appUserSubjectHash,
+        linkStatus: l.linkStatus,
+        rateLimited: l.rateLimited,
       }));
     }
 
@@ -218,7 +248,13 @@ export const queryAccessLog = query({
       args: l.args,
       result: l.result,
       error: l.error,
+      errorCode: l.errorCode,
       duration: l.duration,
+      linkedProvider: l.linkedProvider,
+      providerUserIdHash: l.providerUserIdHash,
+      appUserSubjectHash: l.appUserSubjectHash,
+      linkStatus: l.linkStatus,
+      rateLimited: l.rateLimited,
     }));
   },
 });

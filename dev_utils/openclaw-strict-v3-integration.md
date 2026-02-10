@@ -19,6 +19,13 @@ Header opzionale (richiesto per funzioni user-scoped):
 
 - `Authorization: Bearer <user-jwt>`
 
+Header opzionali audit linking (se la tua BFF risolve un link utente):
+
+- `X-Agent-Link-Provider: discord|telegram|...`
+- `X-Agent-Link-Provider-User-Id: <provider-user-id>`
+- `X-Agent-Link-User-Subject: <app-user-subject>`
+- `X-Agent-Link-Status: active|revoked|expired`
+
 Header non supportati:
 
 - `X-Agent-API-Key`
@@ -30,6 +37,7 @@ Header non supportati:
 - `OPENCLAW_SERVICE_KEY=<service-key-associata-al-service-id>`
 - `AGENT_BRIDGE_DEFAULT_APP_KEY=crm` (opzionale)
 - `AGENT_BRIDGE_ROUTE_MAP_JSON=<json route-map>`
+- `AGENT_BRIDGE_AUDIT_HASH_SALT=<random-long-secret>` (configurata su Convex)
 
 Esempio `AGENT_BRIDGE_ROUTE_MAP_JSON`:
 
@@ -67,6 +75,18 @@ Usa sempre questa matrice:
 - Funzioni che leggono `ctx.auth.getUserIdentity()`: header strict + `Authorization`
 
 Senza `Authorization`, le funzioni user-scoped possono restituire empty/unauthorized.
+
+## Link Registry (component API only)
+
+Il link utente non viene gestito via endpoint HTTP del bridge.
+Usa API Convex del componente dalla tua app/BFF:
+
+- `components.agentBridge.linking.upsertLink`
+- `components.agentBridge.linking.resolveLink`
+- `components.agentBridge.linking.revokeLink`
+- `components.agentBridge.linking.listLinks`
+
+Questo mantiene il registry nel deployment Convex dell'app che installa il componente.
 
 ## Snippet TypeScript pronto
 
@@ -194,6 +214,7 @@ const validation = userToken
 - `403`: policy/permessi negati per app/funzione
 - `404`: app non registrata o `functionKey` non esposta
 - `429`: rate limit, rispettare `Retry-After`
+- `410`: link revocato/scaduto (`link_revoked`, `link_expired`) nei flussi linking
 - `500`: errore interno bridge
 
 ## Sicurezza operativa

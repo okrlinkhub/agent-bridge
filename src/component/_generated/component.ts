@@ -107,10 +107,16 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         {
           agentId: string;
+          appUserSubjectHash?: string;
           args: any;
           duration: number;
           error?: string;
+          errorCode?: string;
           functionKey: string;
+          linkStatus?: string;
+          linkedProvider?: string;
+          providerUserIdHash?: string;
+          rateLimited?: boolean;
           result?: any;
           serviceId?: string;
           timestamp: number;
@@ -130,14 +136,122 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         Array<{
           _id: string;
           agentId: string;
+          appUserSubjectHash?: string;
           args: any;
           duration: number;
           error?: string;
+          errorCode?: string;
           functionKey: string;
+          linkStatus?: string;
+          linkedProvider?: string;
+          providerUserIdHash?: string;
+          rateLimited?: boolean;
           result?: any;
           serviceId?: string;
           timestamp: number;
         }>,
+        Name
+      >;
+    };
+    linking: {
+      listLinks: FunctionReference<
+        "query",
+        "internal",
+        {
+          appKey?: string;
+          limit?: number;
+          provider?: string;
+          status?: "active" | "revoked" | "expired";
+        },
+        Array<{
+          _id: string;
+          appKey: string;
+          appUserSubject: string;
+          createdAt: number;
+          expiresAt?: number;
+          lastUsedAt?: number;
+          metadata?: any;
+          provider: string;
+          providerUserId: string;
+          refreshTokenCiphertext?: string;
+          refreshTokenExpiresAt?: number;
+          revokedAt?: number;
+          status: "active" | "revoked" | "expired";
+          tokenVersion?: number;
+          updatedAt: number;
+        }>,
+        Name
+      >;
+      resolveLink: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          appKey: string;
+          extendExpiryDaysOnUse?: number;
+          maxRequestsPerWindow?: number;
+          provider: string;
+          providerUserId: string;
+          windowSeconds?: number;
+        },
+        | {
+            link: {
+              _id: string;
+              appKey: string;
+              appUserSubject: string;
+              createdAt: number;
+              expiresAt?: number;
+              lastUsedAt?: number;
+              metadata?: any;
+              provider: string;
+              providerUserId: string;
+              refreshTokenCiphertext?: string;
+              refreshTokenExpiresAt?: number;
+              revokedAt?: number;
+              status: "active" | "revoked" | "expired";
+              tokenVersion?: number;
+              updatedAt: number;
+            };
+            ok: true;
+          }
+        | {
+            errorCode:
+              | "link_not_found"
+              | "link_revoked"
+              | "link_expired"
+              | "link_rate_limited";
+            ok: false;
+            retryAfterSeconds?: number;
+            statusCode: number;
+          },
+        Name
+      >;
+      revokeLink: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          appKey?: string;
+          linkId?: string;
+          provider?: string;
+          providerUserId?: string;
+        },
+        { linkId?: string; revoked: boolean },
+        Name
+      >;
+      upsertLink: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          appKey: string;
+          appUserSubject: string;
+          expiresInDays?: number;
+          metadata?: any;
+          provider: string;
+          providerUserId: string;
+          refreshTokenCiphertext?: string;
+          refreshTokenExpiresAt?: number;
+          tokenVersion?: number;
+        },
+        { created: boolean; expiresAt?: number; linkId: string },
         Name
       >;
     };

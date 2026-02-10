@@ -55,8 +55,11 @@ Configura auth strict multi-service in `registerRoutes`:
 registerRoutes(http, components.agentBridge, bridgeConfig, {
   pathPrefix: "/agent",
   serviceKeysEnvVar: "AGENT_BRIDGE_SERVICE_KEYS_JSON",
+  linkingMode: "component_api_only",
 });
 ```
+
+`linkingMode: "component_api_only"` e il default e mantiene il linking su API Convex del componente (niente endpoint HTTP di linking esposti dal bridge).
 
 ### 4) Configura funzioni esposte in `agent-bridge.config.ts`
 
@@ -96,6 +99,13 @@ Header richiesti (strict-only):
 Header opzionale per contesto utente Convex:
 
 - `Authorization: Bearer <user-jwt>`
+
+Header opzionali per audit linking (hashati nel log bridge):
+
+- `X-Agent-Link-Provider`
+- `X-Agent-Link-Provider-User-Id`
+- `X-Agent-Link-User-Subject`
+- `X-Agent-Link-Status`
 
 Quando usarlo:
 
@@ -175,6 +185,7 @@ Per piu istanze OpenClaw che gestiscono piu applicativi:
 
 1. In Convex imposta:
    - `AGENT_BRIDGE_SERVICE_KEYS_JSON={"openclaw-prod":"<key>","openclaw-staging":"<key>"}`
+   - `AGENT_BRIDGE_AUDIT_HASH_SALT="<random-long-secret>"` (raccomandata per hashing audit)
 2. In Convex registra un agente per app con `appKey` univoco:
    - `crm`, `billing`, `warehouse`, ecc.
 3. OpenClaw invia per ogni chiamata:
@@ -209,6 +220,20 @@ Mutation/query del componente disponibili in `components.agentBridge`:
 - `permissions.setFunctionOverrides` (batch)
 - `permissions.listFunctionOverrides`
 - `gateway.queryAccessLog`
+- `linking.upsertLink`
+- `linking.resolveLink`
+- `linking.revokeLink`
+- `linking.listLinks`
+
+### Link Registry nel componente (per-app)
+
+Il registro link utente e persistito nel DB Convex del componente:
+
+- chiave logica: `provider + providerUserId + appKey`
+- target: `appUserSubject`
+- stato: `active | revoked | expired`
+
+In questo modo ogni app che installa il componente mantiene il proprio registry nel proprio deployment Convex, senza un database centralizzato cross-app.
 
 ### Esempio permessi batch
 

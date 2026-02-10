@@ -11,6 +11,7 @@
 import type * as agentBridgeUtils from "../agentBridgeUtils.js";
 import type * as agents from "../agents.js";
 import type * as gateway from "../gateway.js";
+import type * as linking from "../linking.js";
 import type * as permissions from "../permissions.js";
 
 import type {
@@ -24,6 +25,7 @@ const fullApi: ApiFromModules<{
   agentBridgeUtils: typeof agentBridgeUtils;
   agents: typeof agents;
   gateway: typeof gateway;
+  linking: typeof linking;
   permissions: typeof permissions;
 }> = anyApi as any;
 
