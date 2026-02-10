@@ -10,6 +10,7 @@ const linkStatusValidator = v.union(
 
 const linkRecordValidator = v.object({
   _id: v.id("agentUserLinks"),
+  _creationTime: v.number(),
   provider: v.string(),
   providerUserId: v.string(),
   appKey: v.string(),
