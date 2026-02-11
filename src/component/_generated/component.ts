@@ -164,6 +164,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           status?: "active" | "revoked" | "expired";
         },
         Array<{
+          _creationTime: number;
           _id: string;
           appKey: string;
           appUserSubject: string;
@@ -195,6 +196,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         },
         | {
             link: {
+              _creationTime: number;
               _id: string;
               appKey: string;
               appUserSubject: string;
