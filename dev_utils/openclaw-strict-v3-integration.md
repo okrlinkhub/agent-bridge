@@ -6,7 +6,7 @@ Questo documento descrive come integrare OpenClaw con `@okrlinkhub/agent-bridge@
 
 Endpoint:
 
-- `POST {AGENT_BRIDGE_BASE_URL}/agent/execute`
+- `POST {resolved_app_base_url}/api/agent/execute-on-behalf`
 
 Header obbligatori:
 
@@ -32,12 +32,12 @@ Header non supportati:
 
 ## Variabili ambiente OpenClaw consigliate
 
-- `AGENT_BRIDGE_BASE_URL=https://<your-convex-site>`
+- `APP_BASE_URL_MAP_JSON={"crm":"https://crm.example.com","billing":"https://billing.example.com"}`
 - `OPENCLAW_SERVICE_ID=openclaw-prod`
 - `OPENCLAW_SERVICE_KEY=<service-key-associata-al-service-id>`
 - `AGENT_BRIDGE_DEFAULT_APP_KEY=crm` (opzionale)
 - `AGENT_BRIDGE_ROUTE_MAP_JSON=<json route-map>`
-- `AGENT_BRIDGE_AUDIT_HASH_SALT=<random-long-secret>` (configurata su Convex)
+- `AGENT_BRIDGE_AUDIT_HASH_SALT=<random-long-secret>` (configurata su Convex/bridge)
 
 Esempio `AGENT_BRIDGE_ROUTE_MAP_JSON`:
 
@@ -128,36 +128,46 @@ export async function callAgentBridge(input: {
   estimatedCost?: number;
   userToken?: string | null;
 }) {
-  const baseUrl = process.env.AGENT_BRIDGE_BASE_URL;
+  const appBaseUrlMap = parseAppBaseUrlMap({
+    appBaseUrlMapEnvVar: "APP_BASE_URL_MAP_JSON",
+  });
   const serviceId = process.env.OPENCLAW_SERVICE_ID;
   const serviceKey = process.env.OPENCLAW_SERVICE_KEY;
   const defaultApp = process.env.AGENT_BRIDGE_DEFAULT_APP_KEY;
   const routeMapRaw = process.env.AGENT_BRIDGE_ROUTE_MAP_JSON ?? "{}";
 
-  if (!baseUrl || !serviceId || !serviceKey) {
+  if (!serviceId || !serviceKey) {
     throw new Error("Missing required bridge env vars");
   }
 
   const routeMap = JSON.parse(routeMapRaw) as RouteMap;
   const appKey = resolveAppKey(input.functionKey, routeMap, defaultApp);
+  const baseUrlResult = resolveAppBaseUrlForAppKey({
+    appKey,
+    appBaseUrlMap,
+  });
+  if (!baseUrlResult.ok) {
+    throw new Error(baseUrlResult.error);
+  }
 
-  const response = await fetch(`${baseUrl}/agent/execute`, {
+  const response = await fetch(
+    `${baseUrlResult.baseUrl}/api/agent/execute-on-behalf`,
+    {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "X-Agent-Service-Id": serviceId,
       "X-Agent-Service-Key": serviceKey,
       "X-Agent-App": appKey,
-      ...(input.userToken
-        ? { Authorization: `Bearer ${input.userToken}` }
-        : {}),
     },
     body: JSON.stringify({
       functionKey: input.functionKey,
       args: input.args ?? {},
       estimatedCost: input.estimatedCost,
+      appKey,
     }),
-  });
+  },
+  );
 
   if (response.status === 429) {
     const retryAfter = Number(response.headers.get("Retry-After") ?? "1");
@@ -222,6 +232,7 @@ const validation = userToken
 - Non loggare mai `OPENCLAW_SERVICE_KEY`.
 - Non loggare mai bearer token utente.
 - Non inviare mai `X-Agent-API-Key`.
+- Non usare fallback a `APP_BASE_URL` singola. Se `appKey` non e mappata, fallire esplicitamente.
 - Eseguire validazioni minime claim (`exp`, `iss`, `aud`) prima del forward.
 - In caso di rotazione, aggiornare in modo atomico:
   1) configurazione bridge (mappa service keys),

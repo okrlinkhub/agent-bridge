@@ -1,7 +1,9 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterAll, describe, expect, test, vi } from "vitest";
 import {
   defineAgentBridgeConfig,
+  parseAppBaseUrlMap,
   registerRoutes,
+  resolveAppBaseUrlForAppKey,
   type AgentBridgeConfig,
 } from "./index.js";
 
@@ -292,4 +294,84 @@ describe("registerRoutes strict service auth", () => {
     expect(runMutation).not.toHaveBeenCalled();
     process.env.AGENT_BRIDGE_SERVICE_KEYS_JSON = originalEnv;
   });
+});
+
+describe("app base URL map resolution", () => {
+  const originalMapEnv = process.env.APP_BASE_URL_MAP_JSON;
+
+  afterAll(() => {
+    process.env.APP_BASE_URL_MAP_JSON = originalMapEnv;
+  });
+
+  test("returns error when app base URL map is missing", () => {
+    delete process.env.APP_BASE_URL_MAP_JSON;
+    const parsed = parseAppBaseUrlMap({});
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) {
+      throw new Error("Expected parseAppBaseUrlMap to fail when env is missing");
+    }
+    expect(parsed.error).toContain("APP_BASE_URL_MAP_JSON");
+  });
+
+  test("returns error when env map contains invalid JSON", () => {
+    process.env.APP_BASE_URL_MAP_JSON = "not-json";
+    const parsed = parseAppBaseUrlMap({});
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) {
+      throw new Error("Expected parseAppBaseUrlMap to fail on invalid JSON");
+    }
+    expect(parsed.error).toContain("Invalid JSON");
+  });
+
+  test("returns error when env map is not a JSON object", () => {
+    process.env.APP_BASE_URL_MAP_JSON = "[]";
+    const parsed = parseAppBaseUrlMap({});
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) {
+      throw new Error("Expected parseAppBaseUrlMap to fail for non-object JSON");
+    }
+    expect(parsed.error).toContain("must be a JSON object mapping appKey to baseUrl");
+  });
+
+  test("returns error for invalid URL values", () => {
+    const parsed = parseAppBaseUrlMap({
+      appBaseUrlMap: { crm: "not-a-url" },
+    });
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) {
+      throw new Error("Expected parseAppBaseUrlMap to fail for invalid URLs");
+    }
+    expect(parsed.error).toContain('Invalid base URL for appKey "crm"');
+  });
+
+  test("returns error when appKey is not mapped", () => {
+    const parsed = parseAppBaseUrlMap({
+      appBaseUrlMap: { crm: "https://crm.example.com" },
+    });
+    const resolved = resolveAppBaseUrlForAppKey({
+      appKey: "billing",
+      appBaseUrlMap: parsed,
+    });
+    expect(resolved.ok).toBe(false);
+    if (resolved.ok) {
+      throw new Error("Expected resolveAppBaseUrlForAppKey to fail for missing appKey");
+    }
+    expect(resolved.error).toContain('No baseUrl configured for appKey "billing"');
+  });
+
+  test("resolves app base URL and strips trailing slash", () => {
+    const parsed = parseAppBaseUrlMap({
+      appBaseUrlMap: { crm: "https://crm.example.com/" },
+    });
+    const resolved = resolveAppBaseUrlForAppKey({
+      appKey: "crm",
+      appBaseUrlMap: parsed,
+    });
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) {
+      throw new Error("Expected resolveAppBaseUrlForAppKey to succeed");
+    }
+    expect(resolved.baseUrl).toBe("https://crm.example.com");
+  });
+
 });

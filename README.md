@@ -149,6 +149,8 @@ import {
   createAuth0TokenAdapter,
   createCustomOidcTokenAdapter,
   createNextAuthConvexTokenAdapter,
+  parseAppBaseUrlMap,
+  resolveAppBaseUrlForAppKey,
   resolveUserToken,
   validateJwtClaims,
 } from "@okrlinkhub/agent-bridge";
@@ -192,6 +194,35 @@ Per piu istanze OpenClaw che gestiscono piu applicativi:
    - `X-Agent-Service-Id` (identita istanza)
    - `X-Agent-Service-Key` (chiave della specifica istanza)
    - `X-Agent-App` (varia per app target)
+
+### Routing URL multi-app (appKey -> baseUrl)
+
+Quando OpenClaw deve chiamare piu consumer app-side (es. endpoint `execute-on-behalf`), usa la mappa:
+
+- `APP_BASE_URL_MAP_JSON={"crm":"https://crm.example.com","billing":"https://billing.example.com"}`
+
+Helper disponibili nel package:
+
+```ts
+import {
+  parseAppBaseUrlMap,
+  resolveAppBaseUrlForAppKey,
+} from "@okrlinkhub/agent-bridge";
+
+const appBaseUrlMap = parseAppBaseUrlMap({
+  appBaseUrlMapEnvVar: "APP_BASE_URL_MAP_JSON",
+});
+const resolvedBaseUrl = resolveAppBaseUrlForAppKey({
+  appKey: "crm",
+  appBaseUrlMap,
+});
+if (!resolvedBaseUrl.ok) {
+  throw new Error(resolvedBaseUrl.error);
+}
+// resolvedBaseUrl.baseUrl => https://crm.example.com
+```
+
+Policy: nessun fallback a `APP_BASE_URL` legacy. Se `appKey` non e presente in mappa, il flusso deve fallire esplicitamente.
 
 Puoi generare una service key con l'helper del package:
 

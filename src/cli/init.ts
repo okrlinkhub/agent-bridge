@@ -96,6 +96,11 @@ export default http;
 - AGENT_BRIDGE_SERVICE_KEYS_JSON={"openclaw-prod":"<key>","openclaw-staging":"<key>"}
 - OpenClaw must send X-Agent-Service-Id, X-Agent-Service-Key and X-Agent-App
 - Legacy X-Agent-API-Key is not supported in strict mode
+
+5) Configure multi-app consumer routing (required for execute-on-behalf):
+- APP_BASE_URL_MAP_JSON={"crm":"https://crm.example.com","billing":"https://billing.example.com"}
+- Resolve target baseUrl by appKey (fail-fast if appKey is not mapped)
+- Do not fallback to a single APP_BASE_URL
 `;
 
 async function main() {

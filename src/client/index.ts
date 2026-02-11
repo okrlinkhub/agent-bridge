@@ -65,6 +65,73 @@ export function generateAgentBridgeServiceKey(
   return generateKeyWithPrefix(prefix);
 }
 
+export function parseAppBaseUrlMap(args: {
+  appBaseUrlMap?: Record<string, string>;
+  appBaseUrlMapEnvVar?: string;
+}):
+  | { ok: true; baseUrlsByAppKey: Record<string, string> }
+  | { ok: false; error: string } {
+  if (args.appBaseUrlMap) {
+    return sanitizeAppBaseUrlMap(args.appBaseUrlMap);
+  }
+
+  const envVar = args.appBaseUrlMapEnvVar ?? "APP_BASE_URL_MAP_JSON";
+  const json = readRuntimeEnv(envVar);
+  if (!json) {
+    return {
+      ok: false,
+      error: `App base URL map is not configured. Provide parseAppBaseUrlMap({ appBaseUrlMap }) or set ${envVar}`,
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return {
+      ok: false,
+      error: `Invalid JSON in ${envVar}`,
+    };
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      error: `${envVar} must be a JSON object mapping appKey to baseUrl`,
+    };
+  }
+
+  return sanitizeAppBaseUrlMap(parsed as Record<string, unknown>);
+}
+
+export function resolveAppBaseUrlForAppKey(args: {
+  appKey: string;
+  appBaseUrlMap:
+    | { ok: true; baseUrlsByAppKey: Record<string, string> }
+    | { ok: false; error: string };
+}):
+  | { ok: true; baseUrl: string }
+  | { ok: false; error: string } {
+  const appKey = args.appKey.trim();
+  if (!appKey) {
+    return { ok: false, error: "appKey cannot be empty" };
+  }
+  if (!args.appBaseUrlMap.ok) {
+    return { ok: false, error: args.appBaseUrlMap.error };
+  }
+  const baseUrl = args.appBaseUrlMap.baseUrlsByAppKey[appKey];
+  if (!baseUrl) {
+    return {
+      ok: false,
+      error: `No baseUrl configured for appKey "${appKey}"`,
+    };
+  }
+  return {
+    ok: true,
+    baseUrl,
+  };
+}
+
 function generateKeyWithPrefix(prefix: string): string {
   const bytes = new Uint8Array(24);
   crypto.getRandomValues(bytes);
@@ -460,6 +527,10 @@ function readRuntimeEnv(name: string): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function stripTrailingSlash(value: string): string {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
 async function extractLinkAuditContextFromRequest(args: {
   request: Request;
   auditHashSalt: string;
@@ -580,4 +651,54 @@ function sanitizeServiceKeysMap(
   }
 
   return { ok: true, keysByServiceId };
+}
+
+function sanitizeAppBaseUrlMap(
+  input: Record<string, unknown>,
+): { ok: true; baseUrlsByAppKey: Record<string, string> } | { ok: false; error: string } {
+  const baseUrlsByAppKey: Record<string, string> = {};
+  for (const [appKeyRaw, baseUrlRaw] of Object.entries(input)) {
+    if (typeof baseUrlRaw !== "string") {
+      return {
+        ok: false,
+        error: `Invalid baseUrl value for "${appKeyRaw}"`,
+      };
+    }
+
+    const appKey = appKeyRaw.trim();
+    const baseUrlCandidate = baseUrlRaw.trim();
+    if (!appKey || !baseUrlCandidate) {
+      return {
+        ok: false,
+        error: "App keys and base URLs cannot be empty",
+      };
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(baseUrlCandidate);
+    } catch {
+      return {
+        ok: false,
+        error: `Invalid base URL for appKey "${appKey}"`,
+      };
+    }
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      return {
+        ok: false,
+        error: `Invalid base URL protocol for appKey "${appKey}". Only http and https are supported`,
+      };
+    }
+
+    baseUrlsByAppKey[appKey] = stripTrailingSlash(baseUrlCandidate);
+  }
+
+  if (Object.keys(baseUrlsByAppKey).length === 0) {
+    return {
+      ok: false,
+      error: "At least one app base URL must be configured",
+    };
+  }
+
+  return { ok: true, baseUrlsByAppKey };
 }
