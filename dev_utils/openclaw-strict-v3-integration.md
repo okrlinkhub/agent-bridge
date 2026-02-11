@@ -91,6 +91,8 @@ Questo mantiene il registry nel deployment Convex dell'app che installa il compo
 ## Snippet TypeScript pronto
 
 ```ts
+import { buildAgentBridgeStrictHeaders } from "@okrlinkhub/agent-bridge";
+
 type RouteMap = {
   exact?: Record<string, string>;
   prefix?: Record<string, string>;
@@ -154,12 +156,12 @@ export async function callAgentBridge(input: {
     `${baseUrlResult.baseUrl}/api/agent/execute-on-behalf`,
     {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Agent-Service-Id": serviceId,
-      "X-Agent-Service-Key": serviceKey,
-      "X-Agent-App": appKey,
-    },
+    headers: buildAgentBridgeStrictHeaders({
+      serviceId,
+      serviceKey,
+      appKey,
+      userToken: input.userToken,
+    }),
     body: JSON.stringify({
       functionKey: input.functionKey,
       args: input.args ?? {},
