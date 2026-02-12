@@ -146,6 +146,11 @@ export const listFunctionOverrides = query({
     }),
   ),
   handler: async (ctx) => {
-    return await ctx.db.query("agentFunctions").collect();
+    const rows = await ctx.db.query("agentFunctions").collect();
+    return rows.map((row) => ({
+      key: row.key,
+      enabled: row.enabled,
+      globalRateLimit: row.globalRateLimit,
+    }));
   },
 });

@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.1.1
+
+- Fix `listFunctionOverrides` return payload to strip Convex system fields (`_id`, `_creationTime`) and match the declared return validator.
+
 ## 0.2.0
 
 - **A2A (Agent-to-Agent) Communication**: Added support for agent-to-agent communication through channels
