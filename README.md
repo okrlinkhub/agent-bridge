@@ -224,6 +224,60 @@ if (!resolvedBaseUrl.ok) {
 
 Policy: nessun fallback a `APP_BASE_URL` legacy. Se `appKey` non e presente in mappa, il flusso deve fallire esplicitamente.
 
+## Matrice variabili ambiente (Convex vs Vercel vs Railway)
+
+Questa e la parte piu soggetta a errori: le variabili con nome simile non vanno tutte nello stesso posto.
+
+Nota importante:
+- In questo package sono lette direttamente solo: `AGENT_BRIDGE_SERVICE_KEYS_JSON`, `AGENT_BRIDGE_AUDIT_HASH_SALT`, `APP_BASE_URL_MAP_JSON`.
+- Le variabili `OPENCLAW_*`, `PUBLISHED_SITE_URL`, `AGENT_BRIDGE_BASE_URL` appartengono al flusso di integrazione (OpenClaw + frontend/BFF), non al runtime interno del package.
+
+### A) Variabili in Convex (deployment app consumer)
+
+Dove impostarle:
+- Convex Dashboard -> Project Settings -> Environment Variables (sia dev che prod, con valori coerenti per ambiente).
+
+Variabili:
+- `AGENT_BRIDGE_SERVICE_KEYS_JSON` (**obbligatoria**): mappa JSON `serviceId -> serviceKey`.
+  - Esempio: `{"openclaw-prod":"abs_live_...","openclaw-staging":"abs_live_..."}`
+  - Deve contenere la coppia usata da OpenClaw (`OPENCLAW_SERVICE_ID` / `OPENCLAW_SERVICE_KEY`).
+- `AGENT_BRIDGE_AUDIT_HASH_SALT` (**fortemente raccomandata**): segreto lungo usato per hash nei log audit del bridge.
+- `OPENCLAW_LINKING_SHARED_SECRET` (**obbligatoria se usi i flussi linking cross-service**): segreto condiviso da mantenere identico anche dove fai validazione linking lato app/OpenClaw.
+- `PUBLISHED_SITE_URL` (**consigliata**): URL pubblico canonico del sito/app consumer, utile nei flussi che richiedono URL assoluti (es. redirect/callback/linking UX).
+
+### B) Variabili in Vercel (frontend / BFF deployato su Vercel)
+
+Dove impostarle:
+- Vercel -> Project -> Settings -> Environment Variables.
+- Impostale almeno in `Production` e `Preview` (e `Development` se usi env cloud in locale).
+
+Variabili:
+- `APP_BASE_URL_MAP_JSON` (**obbligatoria**): mappa `appKey -> baseUrl` per routing multi-app.
+- `OPENCLAW_SERVICE_ID` (**obbligatoria**): id servizio usato negli header strict.
+- `OPENCLAW_SERVICE_KEY` (**obbligatoria**): chiave servizio associata all'id sopra.
+- `OPENCLAW_LINKING_SHARED_SECRET` (**obbligatoria se linking attivo**): deve essere identica a Convex/Railway.
+- `AGENT_BRIDGE_BASE_URL` (**obbligatoria nel BFF che invoca il bridge**): base URL del bridge/endpoint applicativo usato dalle chiamate server-side.
+
+### C) Variabili in Railway (agente OpenClaw deployato su Railway)
+
+Dove impostarle:
+- Railway -> Service -> Variables (servizio OpenClaw/Gateway).
+
+Variabili:
+- `APP_BASE_URL_MAP_JSON` (**obbligatoria**): stessa semantica della mappa usata lato Vercel.
+- `OPENCLAW_LINKING_SHARED_SECRET` (**obbligatoria se linking attivo**): stesso valore di Convex/Vercel.
+- `OPENCLAW_SERVICE_ID` (**obbligatoria**)
+- `OPENCLAW_SERVICE_KEY` (**obbligatoria**)
+- `OPENCLAW_GATEWAY_TRUSTED_PROXIES=127.0.0.1` (**essenziale su Railway**, anche se non e una variabile del bridge): necessaria per corretta gestione proxy/header nel gateway.
+
+### Regole di consistenza (checklist anti-errori)
+
+- `OPENCLAW_SERVICE_ID` e `OPENCLAW_SERVICE_KEY` devono combaciare con una entry in `AGENT_BRIDGE_SERVICE_KEYS_JSON` su Convex.
+- `OPENCLAW_LINKING_SHARED_SECRET` deve essere identico in tutti i componenti che partecipano al linking.
+- `APP_BASE_URL_MAP_JSON` deve avere le stesse `appKey` usate in `X-Agent-App` e nelle route map.
+- Nessun fallback a `APP_BASE_URL` singola: se `appKey` non e mappata, fallire esplicitamente.
+- Non loggare mai segreti (`OPENCLAW_SERVICE_KEY`, shared secret, bearer token).
+
 Puoi generare una service key con l'helper del package:
 
 ```ts
