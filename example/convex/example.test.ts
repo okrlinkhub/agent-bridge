@@ -144,4 +144,45 @@ describe("example app", () => {
     }
     expect(authResult.statusCode).toBe(404);
   });
+
+  test("app key auth supports multiple agents for the same app key", async () => {
+    const t = initConvexTest();
+    const first = await t.mutation(components.agentBridge.agents.createAgent, {
+      name: "crm-agent-disabled",
+      appKey: "crm",
+      apiKey: "sk_demo_crm_disabled",
+      enabled: false,
+      rateLimit: 10,
+    });
+    const second = await t.mutation(components.agentBridge.agents.createAgent, {
+      name: "crm-agent-enabled",
+      appKey: "crm",
+      apiKey: "sk_demo_crm_enabled",
+      enabled: true,
+      rateLimit: 10,
+    });
+
+    await t.mutation(api.example.setAgentPermissions, {
+      agentId: first.agentId,
+      rules: [{ pattern: "demo.listItems", permission: "allow" }],
+    });
+    await t.mutation(api.example.setAgentPermissions, {
+      agentId: second.agentId,
+      rules: [{ pattern: "demo.listItems", permission: "allow" }],
+    });
+
+    const authResult = await t.mutation(
+      components.agentBridge.gateway.authorizeByAppKey,
+      {
+        appKey: "crm",
+        functionKey: "demo.listItems",
+      },
+    );
+
+    expect(authResult.authorized).toBe(true);
+    if (!authResult.authorized) {
+      throw new Error("Expected authorization to succeed");
+    }
+    expect(authResult.agentId).toBe(second.agentId);
+  });
 });

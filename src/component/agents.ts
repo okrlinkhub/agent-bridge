@@ -17,15 +17,6 @@ export const createAgent = mutation({
     const normalizedAppKey = args.appKey
       ? normalizeAppKey(args.appKey)
       : undefined;
-    if (normalizedAppKey) {
-      const existingByAppKey = await ctx.db
-        .query("agents")
-        .withIndex("by_appKey", (q) => q.eq("appKey", normalizedAppKey))
-        .unique();
-      if (existingByAppKey) {
-        throw new Error("An agent with this app key already exists");
-      }
-    }
 
     const apiKeyHash = await hashApiKey(args.apiKey);
     const existing = await ctx.db
@@ -89,15 +80,6 @@ export const updateAgent = mutation({
     const normalizedAppKey = args.appKey
       ? normalizeAppKey(args.appKey)
       : undefined;
-    if (normalizedAppKey) {
-      const existingByAppKey = await ctx.db
-        .query("agents")
-        .withIndex("by_appKey", (q) => q.eq("appKey", normalizedAppKey))
-        .unique();
-      if (existingByAppKey && existingByAppKey._id !== args.agentId) {
-        throw new Error("An agent with this app key already exists");
-      }
-    }
 
     await ctx.db.patch(args.agentId, {
       name: args.name ?? agent.name,

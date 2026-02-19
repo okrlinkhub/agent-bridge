@@ -73,17 +73,19 @@ export const authorizeByAppKey = mutation({
   returns: authorizeResultValidator,
   handler: async (ctx, args) => {
     const normalizedAppKey = normalizeAppKey(args.appKey);
-    const agent = await ctx.db
+    const agents = await ctx.db
       .query("agents")
       .withIndex("by_appKey", (q) => q.eq("appKey", normalizedAppKey))
-      .unique();
-    if (!agent) {
+      .order("desc")
+      .collect();
+    if (agents.length === 0) {
       return {
         authorized: false as const,
         error: `App ${normalizedAppKey} is not registered`,
         statusCode: 404,
       };
     }
+    const agent = agents.find((row) => row.enabled) ?? agents[0];
 
     return await authorizeAgainstAgent(ctx, {
       agent,
