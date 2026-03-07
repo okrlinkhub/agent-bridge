@@ -2,32 +2,32 @@
 
 [![npm version](https://badge.fury.io/js/@okrlinkhub%2Fagent-bridge.svg)](https://badge.fury.io/js/@okrlinkhub%2Fagent-bridge)
 
-`@okrlinkhub/agent-bridge` espone un gateway HTTP per agenti esterni con approccio **config-first**:
+`@okrlinkhub/agent-bridge` exposes an HTTP gateway for external agents with a **config-first** approach:
 
-- dichiari le funzioni Convex esposte in un solo file;
-- configuri i permessi in batch solo su quelle funzioni;
-- non modifichi query/mutation/action Convex esistenti.
+- declare exposed Convex functions in a single file;
+- configure permissions in batch only for those functions;
+- no changes to existing Convex queries/mutations/actions.
 
-## Installazione
+## Installation
 
 ```sh
 npm install @okrlinkhub/agent-bridge
 ```
 
-## Setup rapido
+## Quick setup
 
-### 1) Inizializza i file nel consumer
+### 1) Initialize files in the consumer project
 
 ```sh
 npx @okrlinkhub/agent-bridge init
 ```
 
-Questo genera:
+This creates:
 
-- `agent-bridge.config.ts`
+- `agent-bridge.config.ts` (project root)
 - `convex/agentBridge.ts`
 
-### 2) Abilita il componente in `convex/convex.config.ts`
+### 2) Enable the component in `convex/convex.config.ts`
 
 ```ts
 import { defineApp } from "convex/server";
@@ -38,7 +38,7 @@ app.use(agentBridge);
 export default app;
 ```
 
-### 3) Monta le route in `convex/http.ts`
+### 3) Mount routes in `convex/http.ts`
 
 ```ts
 import { httpRouter } from "convex/server";
@@ -49,7 +49,7 @@ registerAgentBridgeRoutes(http);
 export default http;
 ```
 
-Configura auth strict multi-service in `registerRoutes`:
+Optional: customize auth in `registerRoutes`:
 
 ```ts
 registerRoutes(http, components.agentBridge, bridgeConfig, {
@@ -59,9 +59,9 @@ registerRoutes(http, components.agentBridge, bridgeConfig, {
 });
 ```
 
-`linkingMode: "component_api_only"` e il default e mantiene il linking su API Convex del componente (niente endpoint HTTP di linking esposti dal bridge).
+`linkingMode: "component_api_only"` is the default and keeps linking on the component's Convex API (no HTTP linking endpoints exposed by the bridge).
 
-### 4) Configura funzioni esposte in `agent-bridge.config.ts`
+### 4) Configure exposed functions in `agent-bridge.config.ts`
 
 ```ts
 import { api } from "./convex/_generated/api";
@@ -75,7 +75,7 @@ export default defineAgentBridgeConfig({
   },
   metadata: {
     "cart.calculatePrice": {
-      description: "Calcola prezzo totale",
+      description: "Calculate total price",
       riskLevel: "low",
       category: "commerce",
     },
@@ -83,36 +83,36 @@ export default defineAgentBridgeConfig({
 });
 ```
 
-## Endpoint HTTP esposti
+## Exposed HTTP endpoints
 
 - `POST /agent/execute`
 - `GET /agent/functions`
 
 ### `POST /agent/execute`
 
-Header richiesti (strict-only):
+Required headers (strict-only):
 
 - `X-Agent-Service-Id: <service-id>`
 - `X-Agent-Service-Key: <service-key>`
-- `X-Agent-App: <app-key>` (es. `crm`, `billing`)
+- `X-Agent-App: <app-key>` (e.g. `crm`, `billing`)
 
-Header opzionale per contesto utente Convex:
+Optional header for Convex user context:
 
 - `Authorization: Bearer <user-jwt>`
 
-Header opzionali per audit linking (hashati nel log bridge):
+Optional headers for audit linking (hashed in bridge logs):
 
 - `X-Agent-Link-Provider`
 - `X-Agent-Link-Provider-User-Id`
 - `X-Agent-Link-User-Subject`
 - `X-Agent-Link-Status`
 
-Quando usarlo:
+When to use:
 
-- Se la funzione target usa `ctx.auth.getUserIdentity()`, invia sempre `Authorization`.
-- Se la funzione e service-only, `Authorization` puo essere omesso.
+- If the target function uses `ctx.auth.getUserIdentity()`, always send `Authorization`.
+- If the function is service-only, `Authorization` can be omitted.
 
-Body richiesto:
+Required body:
 
 ```json
 {
@@ -121,27 +121,27 @@ Body richiesto:
 }
 ```
 
-Risposta:
+Response:
 
-- successo: `{ "success": true, "result": ... }`
-- errore: `{ "success": false, "error": "..." }`
+- success: `{ "success": true, "result": ... }`
+- error: `{ "success": false, "error": "..." }`
 
-Codici principali: `401`, `403`, `404`, `429`, `500`.
+Main status codes: `401`, `403`, `404`, `429`, `500`.
 
 ## User context cross-app (best practice)
 
-Per usare Agent Bridge in app Convex con stack auth diversi, mantieni questo contratto:
+To use Agent Bridge in Convex apps with different auth stacks, follow this contract:
 
-1. **Service auth** (sempre): `X-Agent-Service-Id`, `X-Agent-Service-Key`, `X-Agent-App`
-2. **User auth** (quando serve): `Authorization: Bearer <user-jwt>`
+1. **Service auth** (always): `X-Agent-Service-Id`, `X-Agent-Service-Key`, `X-Agent-App`
+2. **User auth** (when needed): `Authorization: Bearer <user-jwt>`
 
-Token source comuni:
+Common token sources:
 
-- `nextauth_convex`: leggi `session.convexToken` lato server
-- `auth0`: usa access token Auth0 valido per Convex
-- `custom_oidc`: usa token OIDC del provider dell'app
+- `nextauth_convex`: read `session.convexToken` server-side
+- `auth0`: use Auth0 access token valid for Convex
+- `custom_oidc`: use OIDC token from the app's provider
 
-Il package include helper riusabili:
+The package includes reusable helpers:
 
 ```ts
 import {
@@ -156,7 +156,7 @@ import {
 } from "@okrlinkhub/agent-bridge";
 ```
 
-Esempio rapido:
+Quick example:
 
 ```ts
 const tokenAdapter = createNextAuthConvexTokenAdapter({
@@ -176,32 +176,117 @@ const headers = buildAgentBridgeStrictHeaders({
 });
 ```
 
-Note:
+Notes:
 
-- `validateJwtClaims` controlla solo claim (`exp`, `iss`, `aud`) e non sostituisce la validazione crittografica di Convex.
-- Non loggare mai token utente o service key.
+- `validateJwtClaims` only checks claims (`exp`, `iss`, `aud`) and does not replace Convex's cryptographic validation.
+- Never log user tokens or service keys.
 
-## Setup OpenClaw multi-app (semplice su Railway)
+## Environment variables — detailed setup
 
-Per piu istanze OpenClaw che gestiscono piu applicativi:
+**Single source of truth:** `.env.local` in the project root.
 
-1. In Convex imposta:
-   - `AGENT_BRIDGE_SERVICE_KEYS_JSON={"openclaw-prod":"<key>","openclaw-staging":"<key>"}`
-   - `AGENT_BRIDGE_AUDIT_HASH_SALT="<random-long-secret>"` (raccomandata per hashing audit)
-2. In Convex registra un agente per app con `appKey` univoco:
-   - `crm`, `billing`, `warehouse`, ecc.
-3. OpenClaw invia per ogni chiamata:
-   - `X-Agent-Service-Id` (identita istanza)
-   - `X-Agent-Service-Key` (chiave della specifica istanza)
-   - `X-Agent-App` (varia per app target)
+Put all variables in `.env.local`, then sync them to Convex, Vercel, and Fly.io (or Railway) according to the matrix below.
 
-### Routing URL multi-app (appKey -> baseUrl)
+### Sync matrix (from .env.local to platforms)
 
-Quando OpenClaw deve chiamare piu consumer app-side (es. endpoint `execute-on-behalf`), usa la mappa:
+| Variable | Convex | Vercel | Fly.io / Railway |
+|----------|--------|--------|-----------------|
+| AGENT_BRIDGE_SERVICE_KEYS_JSON | ✓ | — | — |
+| AGENT_BRIDGE_AUDIT_HASH_SALT | ✓ | — | — |
+| PUBLISHED_SITE_URL | ✓ | — | — |
+| AGENT_BRIDGE_BASE_URL | — | ✓ | — |
+| APP_BASE_URL_MAP_JSON | — | ✓ | ✓ |
+| OPENCLAW_SERVICE_ID | — | ✓ | ✓ |
+| OPENCLAW_SERVICE_KEY | — | ✓ | ✓ |
+
+**Important:** This package reads only `AGENT_BRIDGE_SERVICE_KEYS_JSON`, `AGENT_BRIDGE_AUDIT_HASH_SALT`, and `APP_BASE_URL_MAP_JSON`. Variables like `OPENCLAW_*`, `PUBLISHED_SITE_URL`, and `AGENT_BRIDGE_BASE_URL` belong to the integration flow (OpenClaw + frontend/BFF), not the package runtime.
+
+### Where do service_id and service_key come from?
+
+- **service_id:** You choose it. A readable identifier for the service instance calling the bridge (e.g. `openclaw-prod`, `openclaw-staging`, `my-agent`).
+- **service_key:** Generate it with the package helper. A cryptographic secret (format `abs_live_<random>`).
+
+**Flow:**
+
+1. Choose a `service_id` (e.g. `openclaw-prod`).
+2. Generate the `service_key` (see below).
+3. Add the pair to `AGENT_BRIDGE_SERVICE_KEYS_JSON` on Convex.
+4. Use the same `service_id` and `service_key` in `OPENCLAW_SERVICE_ID` and `OPENCLAW_SERVICE_KEY` on Vercel/Fly.io/Railway.
+
+**Generate service_key (Node.js, requires package installed):**
+
+```sh
+node -e "import('@okrlinkhub/agent-bridge').then(m => console.log(m.generateAgentBridgeServiceKey()))"
+```
+
+Or in TypeScript:
+
+```ts
+import { generateAgentBridgeServiceKey } from "@okrlinkhub/agent-bridge";
+
+const serviceKey = generateAgentBridgeServiceKey(); // e.g. abs_live_abc123...
+```
+
+**Generate AGENT_BRIDGE_AUDIT_HASH_SALT:**
+
+```sh
+openssl rand -base64 32
+```
+
+Or with Node.js:
+
+```sh
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+### Complete .env.local example
+
+```env
+# Convex (sync to Convex Dashboard)
+AGENT_BRIDGE_SERVICE_KEYS_JSON={"openclaw-prod":"abs_live_xxx","openclaw-staging":"abs_live_yyy"}
+AGENT_BRIDGE_AUDIT_HASH_SALT=<random-32-chars>
+PUBLISHED_SITE_URL=https://app.example.com
+
+# Vercel / Fly.io / Railway (sync to all platforms)
+APP_BASE_URL_MAP_JSON={"crm":"https://crm.example.com","billing":"https://billing.example.com"}
+OPENCLAW_SERVICE_ID=openclaw-prod
+OPENCLAW_SERVICE_KEY=abs_live_xxx
+
+# Vercel only (BFF that invokes the bridge)
+AGENT_BRIDGE_BASE_URL=https://your-deployment.convex.site
+```
+
+### Convex Dashboard — step by step
+
+1. Go to [dashboard.convex.dev](https://dashboard.convex.dev).
+2. Select your consumer app project.
+3. Sidebar → **Settings** → **Environment Variables**.
+4. Click **Add Environment Variable**.
+5. **Name:** `AGENT_BRIDGE_SERVICE_KEYS_JSON`
+6. **Value:** JSON (e.g. `{"openclaw-prod":"abs_live_xxx"}`). No extra spaces, use double quotes.
+7. Select **Development** and **Production**.
+8. Click **Save**.
+
+Repeat for `AGENT_BRIDGE_AUDIT_HASH_SALT` and `PUBLISHED_SITE_URL`.
+
+### OpenClaw multi-app setup
+
+For multiple OpenClaw instances managing multiple apps:
+
+1. In Convex, set the variables from the matrix above.
+2. Register an agent per app with a unique `appKey`: `crm`, `billing`, `warehouse`, etc.
+3. OpenClaw sends for each call:
+   - `X-Agent-Service-Id` (instance identity)
+   - `X-Agent-Service-Key` (key for that instance)
+   - `X-Agent-App` (varies by target app)
+
+### Multi-app URL routing (appKey -> baseUrl)
+
+When OpenClaw must call multiple consumer apps (e.g. `execute-on-behalf` endpoint), use:
 
 - `APP_BASE_URL_MAP_JSON={"crm":"https://crm.example.com","billing":"https://billing.example.com"}`
 
-Helper disponibili nel package:
+Package helpers:
 
 ```ts
 import {
@@ -222,78 +307,31 @@ if (!resolvedBaseUrl.ok) {
 // resolvedBaseUrl.baseUrl => https://crm.example.com
 ```
 
-Policy: nessun fallback a `APP_BASE_URL` legacy. Se `appKey` non e presente in mappa, il flusso deve fallire esplicitamente.
+Policy: no fallback to legacy `APP_BASE_URL`. If `appKey` is not in the map, fail explicitly.
 
-## Matrice variabili ambiente (Convex vs Vercel vs Railway)
+### Platform-specific setup
 
-Questa e la parte piu soggetta a errori: le variabili con nome simile non vanno tutte nello stesso posto.
+**Vercel:** Project → Settings → Environment Variables. Sync variables from `.env.local` per the matrix. Set for Production, Preview, and Development.
 
-Nota importante:
-- In questo package sono lette direttamente solo: `AGENT_BRIDGE_SERVICE_KEYS_JSON`, `AGENT_BRIDGE_AUDIT_HASH_SALT`, `APP_BASE_URL_MAP_JSON`.
-- Le variabili `OPENCLAW_*`, `PUBLISHED_SITE_URL`, `AGENT_BRIDGE_BASE_URL` appartengono al flusso di integrazione (OpenClaw + frontend/BFF), non al runtime interno del package.
+**Fly.io:** App → Secrets (or `fly secrets set KEY=value`). Sync `APP_BASE_URL_MAP_JSON`, `OPENCLAW_SERVICE_ID`, `OPENCLAW_SERVICE_KEY` from `.env.local`.
 
-### A) Variabili in Convex (deployment app consumer)
+**Railway:** Service → Variables. Same variables as Fly.io.
 
-Dove impostarle:
-- Convex Dashboard -> Project Settings -> Environment Variables (sia dev che prod, con valori coerenti per ambiente).
+### Consistency checklist
 
-Variabili:
-- `AGENT_BRIDGE_SERVICE_KEYS_JSON` (**obbligatoria**): mappa JSON `serviceId -> serviceKey`.
-  - Esempio: `{"openclaw-prod":"abs_live_...","openclaw-staging":"abs_live_..."}`
-  - Deve contenere la coppia usata da OpenClaw (`OPENCLAW_SERVICE_ID` / `OPENCLAW_SERVICE_KEY`).
-- `AGENT_BRIDGE_AUDIT_HASH_SALT` (**fortemente raccomandata**): segreto lungo usato per hash nei log audit del bridge.
-- `OPENCLAW_LINKING_SHARED_SECRET` (**obbligatoria se usi i flussi linking cross-service**): segreto condiviso da mantenere identico anche dove fai validazione linking lato app/OpenClaw.
-- `PUBLISHED_SITE_URL` (**consigliata**): URL pubblico canonico del sito/app consumer, utile nei flussi che richiedono URL assoluti (es. redirect/callback/linking UX).
+1. `OPENCLAW_SERVICE_ID` + `OPENCLAW_SERVICE_KEY` must match an entry in `AGENT_BRIDGE_SERVICE_KEYS_JSON` on Convex.
+2. `appKey` values in `APP_BASE_URL_MAP_JSON` must match `X-Agent-App` in requests and the database.
+3. No fallback to a single `APP_BASE_URL`: if `appKey` is not mapped, fail explicitly.
+4. Never log secrets (`OPENCLAW_SERVICE_KEY`, bearer token).
 
-### B) Variabili in Vercel (frontend / BFF deployato su Vercel)
+Benefits:
+- centralized control and debugging in the Convex bridge;
+- no multiple API key submissions in requests;
+- rotation and per-app policies managed in the bridge.
 
-Dove impostarle:
-- Vercel -> Project -> Settings -> Environment Variables.
-- Impostale almeno in `Production` e `Preview` (e `Development` se usi env cloud in locale).
+## Agent and permission management
 
-Variabili:
-- `APP_BASE_URL_MAP_JSON` (**obbligatoria**): mappa `appKey -> baseUrl` per routing multi-app.
-- `OPENCLAW_SERVICE_ID` (**obbligatoria**): id servizio usato negli header strict.
-- `OPENCLAW_SERVICE_KEY` (**obbligatoria**): chiave servizio associata all'id sopra.
-- `OPENCLAW_LINKING_SHARED_SECRET` (**obbligatoria se linking attivo**): deve essere identica a Convex/Railway.
-- `AGENT_BRIDGE_BASE_URL` (**obbligatoria nel BFF che invoca il bridge**): base URL del bridge/endpoint applicativo usato dalle chiamate server-side.
-
-### C) Variabili in Railway (agente OpenClaw deployato su Railway)
-
-Dove impostarle:
-- Railway -> Service -> Variables (servizio OpenClaw/Gateway).
-
-Variabili:
-- `APP_BASE_URL_MAP_JSON` (**obbligatoria**): stessa semantica della mappa usata lato Vercel.
-- `OPENCLAW_LINKING_SHARED_SECRET` (**obbligatoria se linking attivo**): stesso valore di Convex/Vercel.
-- `OPENCLAW_SERVICE_ID` (**obbligatoria**)
-- `OPENCLAW_SERVICE_KEY` (**obbligatoria**)
-- `OPENCLAW_GATEWAY_TRUSTED_PROXIES=127.0.0.1` (**essenziale su Railway**, anche se non e una variabile del bridge): necessaria per corretta gestione proxy/header nel gateway.
-
-### Regole di consistenza (checklist anti-errori)
-
-- `OPENCLAW_SERVICE_ID` e `OPENCLAW_SERVICE_KEY` devono combaciare con una entry in `AGENT_BRIDGE_SERVICE_KEYS_JSON` su Convex.
-- `OPENCLAW_LINKING_SHARED_SECRET` deve essere identico in tutti i componenti che partecipano al linking.
-- `APP_BASE_URL_MAP_JSON` deve avere le stesse `appKey` usate in `X-Agent-App` e nelle route map.
-- Nessun fallback a `APP_BASE_URL` singola: se `appKey` non e mappata, fallire esplicitamente.
-- Non loggare mai segreti (`OPENCLAW_SERVICE_KEY`, shared secret, bearer token).
-
-Puoi generare una service key con l'helper del package:
-
-```ts
-import { generateAgentBridgeServiceKey } from "@okrlinkhub/agent-bridge";
-
-const serviceKey = generateAgentBridgeServiceKey(); // es: abs_live_<random>
-```
-
-Vantaggi:
-- controllo e debugging centralizzati nel bridge Convex;
-- nessun invio multiplo di API key nelle request;
-- rotazione e policy per app gestite nel bridge.
-
-## Gestione agenti e permessi
-
-Mutation/query del componente disponibili in `components.agentBridge`:
+Component mutations/queries available in `components.agentBridge`:
 
 - `agents.createAgent`
 - `agents.updateAgent`
@@ -310,17 +348,17 @@ Mutation/query del componente disponibili in `components.agentBridge`:
 - `linking.revokeLink`
 - `linking.listLinks`
 
-### Link Registry nel componente (per-app)
+### Link registry in the component (per-app)
 
-Il registro link utente e persistito nel DB Convex del componente:
+The user link registry is persisted in the component's Convex DB:
 
-- chiave logica: `provider + providerUserId + appKey`
+- logical key: `provider + providerUserId + appKey`
 - target: `appUserSubject`
-- stato: `active | revoked | expired`
+- status: `active | revoked | expired`
 
-In questo modo ogni app che installa il componente mantiene il proprio registry nel proprio deployment Convex, senza un database centralizzato cross-app.
+Each app that installs the component keeps its own registry in its Convex deployment, without a centralized cross-app database.
 
-### Esempio permessi batch
+### Batch permissions example
 
 ```ts
 await ctx.runMutation(components.agentBridge.permissions.setAgentPermissions, {
@@ -337,29 +375,29 @@ await ctx.runMutation(components.agentBridge.permissions.setAgentPermissions, {
 });
 ```
 
-## Breaking change strict-only
+## Breaking change: strict-only
 
-Da questa versione:
-- `X-Agent-API-Key` non e piu supportato nel runtime HTTP;
-- non esiste fallback single-key;
-- e obbligatoria la triade `X-Agent-Service-Id` + `X-Agent-Service-Key` + `X-Agent-App`.
+As of this version:
+- `X-Agent-API-Key` is no longer supported in the HTTP runtime;
+- there is no single-key fallback;
+- the triad `X-Agent-Service-Id` + `X-Agent-Service-Key` + `X-Agent-App` is required.
 
-## Migrazione 0.2 -> next major
+## Migration 0.2 -> next major
 
-Breaking changes principali:
+Main breaking changes:
 
-- rimosso il flusso provisioning token/instance token;
-- rimossa la registrazione runtime delle funzioni via `createFunctionHandle`;
-- rimosso l’uso della classe `AgentBridge` legacy.
+- removed token/instance token provisioning flow;
+- removed runtime function registration via `createFunctionHandle`;
+- removed use of legacy `AgentBridge` class.
 
-Nuovo flusso:
+New flow:
 
-1. config funzioni in `agent-bridge.config.ts`;
-2. auth strict via `X-Agent-Service-Id + X-Agent-Service-Key + X-Agent-App`;
-3. policy in batch via mutation del componente;
-4. log centralizzato in `agentLogs`.
+1. configure functions in `agent-bridge.config.ts`;
+2. strict auth via `X-Agent-Service-Id` + `X-Agent-Service-Key` + `X-Agent-App`;
+3. batch policy via component mutations;
+4. centralized logs in `agentLogs`.
 
-## Sviluppo locale
+## Local development
 
 ```sh
 npm i
